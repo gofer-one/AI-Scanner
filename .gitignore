@@ -1,0 +1,15 @@
+# macOS
+.DS_Store
+
+# Java
+target/
+*.class
+*.jar
+*.log
+
+# IDE
+.idea/
+.vscode/
+
+# 系统文件
+Thumbs.db
