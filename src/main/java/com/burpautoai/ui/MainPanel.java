@@ -35,11 +35,6 @@ import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JTabbedPane;
 import javax.swing.SwingUtilities;
-import okhttp3.MediaType;
-import okhttp3.OkHttpClient;
-import okhttp3.Request;
-import okhttp3.RequestBody;
-import okhttp3.Response;
 
 public class MainPanel
 extends JPanel
@@ -149,7 +144,9 @@ implements ITab {
             });
             this.executorService.submit(() -> {
                 this.updateStats();
-                this.aiEngine.scanRequest(task);
+                this.aiEngine.scanRequest(task, chunk -> {
+                    // 流式输出时，这里可以实时记录日志或更新状态
+                });
                 SwingUtilities.invokeLater(() -> {
                     this.taskTablePanel.refreshTask(task);
                     this.updateStats();
@@ -173,13 +170,14 @@ implements ITab {
     public void rescanTask(ScanTask task) {
         task.setStatus(ScanTask.TaskStatus.PENDING);
         task.setAiAnalysis("");
-        task.clearProbeRecords();
         this.logPanel.logInfo("\u91cd\u65b0\u626b\u63cf\u4efb\u52a1 #" + task.getId());
         this.taskTablePanel.refreshTask(task);
         this.updateStats();
         this.executorService.submit(() -> {
             this.updateStats();
-            this.aiEngine.scanRequest(task);
+            this.aiEngine.scanRequest(task, chunk -> {
+                // 流式刷新逻辑
+            });
             SwingUtilities.invokeLater(() -> {
                 this.taskTablePanel.refreshTask(task);
                 this.updateStats();

@@ -227,55 +227,91 @@ public class TaskTablePanel extends JPanel {
 
     private void showReportDialog(ScanTask task) {
         Frame owner = (Frame)SwingUtilities.getWindowAncestor(this);
-        // 将第三个参数设置为 false，使其成为非模态对话框
         javax.swing.JDialog dialog = new javax.swing.JDialog(owner, "\u4efb\u52a1 #" + task.getId() + " - AI \u5ba1\u8ba1\u62a5\u544a", false);
         dialog.setLayout(new BorderLayout());
         
-        javax.swing.JTextArea reportArea = new javax.swing.JTextArea();
-        reportArea.setEditable(false);
-        reportArea.setFont(new Font("Consolas", 0, 14));
-        reportArea.setBackground(new Color(248, 249, 250));
-        reportArea.setForeground(new Color(33, 37, 41));
-        reportArea.setLineWrap(true);
-        reportArea.setWrapStyleWord(true);
-        reportArea.setBorder(BorderFactory.createEmptyBorder(15, 15, 15, 15));
+        javax.swing.JEditorPane reportPane = new javax.swing.JEditorPane();
+        reportPane.setEditable(false);
+        reportPane.setContentType("text/html");
+        reportPane.setBackground(new Color(255, 255, 255));
+        reportPane.setBorder(BorderFactory.createEmptyBorder(15, 15, 15, 15));
 
-        StringBuilder report = new StringBuilder();
-        report.append("====================================================\n");
-        report.append("  AI-Scanner \u6f0f\u6d1e\u5ba1\u8ba1\u62a5\u544a  \n");
-        report.append("====================================================\n\n");
-        report.append("\u76ee\u6807 URL: ").append(task.getUrl()).append("\n");
-        report.append("\u8bf7\u6c42\u65b9\u6cd5: ").append(task.getMethod()).append("\n\n");
-        
-        report.append("====================================================\n");
-        report.append("  AI \u667a\u80fd\u5ba1\u8ba1\u8be6\u60c5 / AI Full Response  \n");
-        report.append("====================================================\n\n");
+        Runnable updateContent = () -> {
+            StringBuilder html = new StringBuilder();
+            html.append("<html><body style='font-family:微软雅黑,sans-serif; font-size:14pt; color:#212529; line-height:1.6;'>");
+            html.append("<div style='background-color:#f8f9fa; padding:15px; border-left:5px solid #17a2b8; margin-bottom:20px;'>");
+            html.append("<h2 style='margin:0; color:#0c5460; text-align:center;'>AI-Scanner \u6f0f\u6d1e\u5ba1\u8ba1\u62a5\u544a</h2>");
+            html.append("<p style='margin:5px 0 0 0;'>\u76ee\u6807 URL: ").append(task.getUrl()).append("</p>");
+            html.append("</div>");
 
-        String aiAnalysis = task.getAiAnalysis();
-        if (aiAnalysis != null && !aiAnalysis.isEmpty()) {
-            report.append(aiAnalysis).append("\n");
-        } else if (task.getStatus() != ScanTask.TaskStatus.FINISHED) {
-            report.append("\uff08\u6b63\u5728\u7b49\u5f85 AI \u8f93\u51fa...\uff09\n");
-        } else {
-            report.append("\uff08\u672a\u83b7\u53d6\u5230 AI \u5206\u6790\u5185\u5bb9\uff09\n");
+            String aiAnalysis = task.getAiAnalysis();
+            if (aiAnalysis != null && !aiAnalysis.isEmpty()) {
+                html.append(markdownToHtml(aiAnalysis));
+            } else if (task.getStatus() != ScanTask.TaskStatus.FINISHED) {
+                html.append("<p style='color:#6c757d; font-style:italic;'>AI \u68c0\u67e5\u4e2d...</p>");
+            } else {
+                html.append("<p style='color:#dc3545;'>\uff08\u672a\u83b7\u53d6\u5230 AI \u5206\u6790\u5185\u5bb9\uff09</p>");
+            }
+            html.append("</body></html>");
+            reportPane.setText(html.toString());
+        };
+
+        updateContent.run();
+        // 如果已完成，确保光标在顶部
+        if (task.getStatus() == ScanTask.TaskStatus.FINISHED) {
+            SwingUtilities.invokeLater(() -> reportPane.setCaretPosition(0));
         }
 
-        reportArea.setText(report.toString());
-        reportArea.setCaretPosition(0);
+        // 如果任务还在进行，开启定时器刷新
+        final javax.swing.Timer[] timerContainer = new javax.swing.Timer[1];
+        if (task.getStatus() != ScanTask.TaskStatus.FINISHED) {
+            timerContainer[0] = new javax.swing.Timer(1000, e -> {
+                updateContent.run();
+                if (task.getStatus() == ScanTask.TaskStatus.FINISHED) {
+                    timerContainer[0].stop();
+                    reportPane.setCaretPosition(0); // 完成时回到顶部
+                }
+            });
+            timerContainer[0].start();
+        }
 
-        JScrollPane scrollPane = new JScrollPane(reportArea);
+        JScrollPane scrollPane = new JScrollPane(reportPane);
         scrollPane.setBorder(null);
         dialog.add(scrollPane, "Center");
 
         JButton closeButton = new JButton("\u5173\u95ed");
-        closeButton.addActionListener(e -> dialog.dispose());
+        closeButton.addActionListener(e -> {
+            if (timerContainer[0] != null) timerContainer[0].stop();
+            dialog.dispose();
+        });
+        
         JPanel bp = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         bp.add(closeButton);
         dialog.add(bp, "South");
 
-        dialog.setSize(800, 650);
+        dialog.setSize(850, 700);
         dialog.setLocationRelativeTo(owner);
         dialog.setVisible(true);
+    }
+
+    private String markdownToHtml(String md) {
+        if (md == null) return "";
+        String html = md
+            .replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replaceAll("(?m)^### (.*)$", "<h3 style='color:#0056b3; border-bottom:1px solid #dee2e6; padding-bottom:5px; margin-top:20px;'>$1</h3>")
+            .replaceAll("(?m)^## (.*)$", "<h2 style='color:#0056b3; border-bottom:2px solid #dee2e6; padding-bottom:8px; margin-top:25px;'>$1</h2>")
+            .replaceAll("(?m)^# (.*)$", "<h1 style='color:#0056b3; text-align:center;'>$1</h1>")
+            .replaceAll("(?m)^\\*\\*(.*)\\*\\*$", "<b>$1</b>")
+            .replaceAll("(?m)^-(.*)$", "<li>$1</li>")
+            .replace("\n", "<br>");
+        
+        // 处理代码块 (简单模拟)
+        if (html.contains("```")) {
+            html = html.replaceAll("```(.*?)```", "<pre style='background-color:#f4f4f4; padding:10px; border:1px solid #ccc; font-family:Consolas,monospace;'>$1</pre>");
+        }
+        return html;
     }
 
     private String getTaskDetailSummary(ScanTask task) {

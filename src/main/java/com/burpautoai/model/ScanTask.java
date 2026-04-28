@@ -15,9 +15,7 @@ public class ScanTask {
     private IHttpRequestResponse originalRequest;
     private Date createTime;
     private Date finishTime;
-    private List<ProbeRecord> probeRecords;
     private String errorMessage;
-    private String testParams;
     private String aiAnalysis;
 
     public ScanTask(int id, IHttpRequestResponse request, String method, String url) {
@@ -31,9 +29,7 @@ public class ScanTask {
         this.url = url;
         this.scanMode = scanMode == null ? ScanMode.CUSTOM : scanMode;
         this.status = TaskStatus.PENDING;
-        this.testParams = "";
         this.createTime = new Date();
-        this.probeRecords = new ArrayList<ProbeRecord>();
     }
 
     public int getId() {
@@ -71,20 +67,6 @@ public class ScanTask {
         return this.finishTime;
     }
 
-    public List<ProbeRecord> getProbeRecords() {
-        return this.probeRecords;
-    }
-
-    public void addProbeRecord(ProbeRecord record) {
-        if (record != null) {
-            this.probeRecords.add(record);
-        }
-    }
-
-    public void clearProbeRecords() {
-        this.probeRecords.clear();
-    }
-
     public String getErrorMessage() {
         return this.errorMessage;
     }
@@ -99,14 +81,6 @@ public class ScanTask {
 
     public void setErrorMessage(String errorMessage) {
         this.errorMessage = errorMessage;
-    }
-
-    public String getTestParams() {
-        return this.testParams != null ? this.testParams : "";
-    }
-
-    public void setTestParams(String testParams) {
-        this.testParams = testParams != null ? testParams : "";
     }
 
     public String getAiAnalysis() {
@@ -171,48 +145,6 @@ public class ScanTask {
 
         public boolean isCustom() {
             return this == CUSTOM;
-        }
-    }
-
-    public static class ProbeRecord {
-        private final int index;
-        private final String vulnType;
-        private final String payload;
-        private final String position;
-        private final IHttpRequestResponse message;
-
-        public ProbeRecord(int index, String vulnType, String payload, String position, IHttpRequestResponse message) {
-            this.index = index;
-            this.vulnType = vulnType;
-            this.payload = payload;
-            this.position = position;
-            this.message = message;
-        }
-
-        public int getIndex() {
-            return this.index;
-        }
-
-        public String getVulnType() {
-            return this.vulnType;
-        }
-
-        public String getPayload() {
-            return this.payload;
-        }
-
-        public String getPosition() {
-            return this.position;
-        }
-
-        public IHttpRequestResponse getMessage() {
-            return this.message;
-        }
-
-        public String getDisplayText() {
-            String safeType = this.vulnType == null ? "UNKNOWN" : this.vulnType;
-            String safePosition = this.position == null ? "auto" : this.position;
-            return "#" + this.index + " | " + safeType + " | 参数: " + safePosition;
         }
     }
 }
