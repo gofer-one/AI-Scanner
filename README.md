@@ -27,7 +27,7 @@
 
 
 > * 漏洞分析结果
-<img width="2700" height="1294" alt="image" src="https://github.com/user-attachments/assets/e24f7a71-d9c0-43a7-9a1e-573ed1b90662" />
+<img width="1700" height="1400" alt="image" src="https://github.com/user-attachments/assets/5cd82504-00ca-4bca-9727-9d245486a601" />
 
 
 ---
