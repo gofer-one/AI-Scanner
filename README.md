@@ -165,7 +165,7 @@ target/*-jar-with-dependencies.jar
 
 ## 🤝 关于
 
-* 功能完全有gemini pro重构，我不会任何代码。
+* 功能完全由gemini pro重构，我不会任何代码。
 * 提交 Issue 不理
 * 提交 PR 不理
 * 提出功能建议 不理
