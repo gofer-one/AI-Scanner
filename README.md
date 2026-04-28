@@ -24,12 +24,6 @@
 > * 扫描界面截图
 <img width="2690" height="1096" alt="image" src="https://github.com/user-attachments/assets/f70b65eb-bfad-4044-b02d-ab4c495e21b8" />
 
-
-
-> * 漏洞分析结果
-<img width="1700" height="1400" alt="image" src="https://github.com/user-attachments/assets/5cd82504-00ca-4bca-9727-9d245486a601" />
-
-
 ---
 
 ## 🏗️ 架构设计
@@ -131,7 +125,8 @@ target/*-jar-with-dependencies.jar
 * AI 分析说明
 * 请求/响应对比
 * Payload 详情
-<img width="1600" height="1300" alt="image" src="https://github.com/user-attachments/assets/f15cf0c8-1d3b-48ab-8a53-4594ff05c0b7" />
+<img width="1700" height="1400" alt="image" src="https://github.com/user-attachments/assets/b7bebe13-eb56-42d7-a4ea-057d07041004" />
+
 
 
 ---
