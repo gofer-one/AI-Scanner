@@ -122,12 +122,13 @@ target/*-jar-with-dependencies.jar
 
 ---
 
-## 📊 扫描结果示例（建议后续补图）
+## 📊 扫描结果示例
 
 * 风险等级标记
 * AI 分析说明
 * 请求/响应对比
 * Payload 详情
+<img width="1600" height="1300" alt="image" src="https://github.com/user-attachments/assets/f15cf0c8-1d3b-48ab-8a53-4594ff05c0b7" />
 
 ---
 
@@ -156,33 +157,21 @@ target/*-jar-with-dependencies.jar
 
 * `.jar` 文件
 * 版本更新说明
-
 ---
 
-## 🛠️ 开发路线（Roadmap）
+## 🤝 关于
 
-* [ ] 支持更多漏洞类型
-* [ ] 多模型切换（OpenAI / 本地模型）
-* [ ] 扫描策略自定义
-* [ ] 报告导出功能
-* [ ] 自动化 CI/CD 发布
-
----
-
-## 🤝 贡献
-
-欢迎：
-
-* 提交 Issue
-* 提交 PR
-* 提出功能建议
+* 功能完全有gemini pro重构，我不会任何代码。
+* 提交 Issue 不理
+* 提交 PR 不理
+* 提出功能建议 不理
+* 一切功能跟Ai说去吧
 
 ---
 
 ## ⭐ Star 支持
 
 如果这个项目对你有帮助，欢迎点个 ⭐
-这是持续更新的最大动力 🙌
 
 ---
 
