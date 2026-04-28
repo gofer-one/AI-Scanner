@@ -4,7 +4,6 @@
 # Java
 target/
 *.class
-*.jar
 *.log
 
 # IDE
