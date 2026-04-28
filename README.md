@@ -16,11 +16,16 @@
 
 ## 🎥 Demo
 
+> * 配置界面截图
+<img width="1600" height="1574" alt="image" src="https://github.com/user-attachments/assets/a804d5ff-c243-46e4-a2f4-435dde94c99a" />
+
+
 > * 扫描界面截图
-![alt text](image.png)
+<img width="2690" height="1096" alt="image" src="https://github.com/user-attachments/assets/f70b65eb-bfad-4044-b02d-ab4c495e21b8" />
+
 
 > * 漏洞分析结果
-![alt text](image-1.png)
+<img width="2700" height="1294" alt="image" src="https://github.com/user-attachments/assets/e24f7a71-d9c0-43a7-9a1e-573ed1b90662" />
 
 ---
 
