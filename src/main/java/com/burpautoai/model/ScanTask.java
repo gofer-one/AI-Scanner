@@ -1,10 +1,7 @@
 package com.burpautoai.model;
 
 import burp.IHttpRequestResponse;
-
-import java.util.ArrayList;
 import java.util.Date;
-import java.util.List;
 
 public class ScanTask {
     private ScanMode scanMode;
@@ -17,6 +14,8 @@ public class ScanTask {
     private Date finishTime;
     private String errorMessage;
     private String aiAnalysis;
+    private String customPrompt;
+    private volatile boolean isStopped = false;
 
     public ScanTask(int id, IHttpRequestResponse request, String method, String url) {
         this(id, request, method, url, ScanMode.CUSTOM);
@@ -91,6 +90,22 @@ public class ScanTask {
         this.aiAnalysis = aiAnalysis;
     }
 
+    public String getCustomPrompt() {
+        return this.customPrompt;
+    }
+
+    public void setCustomPrompt(String customPrompt) {
+        this.customPrompt = customPrompt;
+    }
+
+    public boolean isStopped() {
+        return isStopped;
+    }
+
+    public void setStopped(boolean stopped) {
+        isStopped = stopped;
+    }
+
     public static enum TaskStatus {
         PENDING("\u5f85\u5904\u7406"),
         SCANNING("\u8fdb\u884c\u4e2d"),
@@ -108,23 +123,6 @@ public class ScanTask {
     }
 
     public static enum ScanMode {
-        FILE_UPLOAD("文件上传", "FILE_UPLOAD"),
-        COMMAND_INJECTION("命令执行", "COMMAND_INJECTION"),
-        SSTI("SSTI模板注入", "SSTI"),
-        SQL_INJECTION("SQL注入", "SQL_INJECTION"),
-        XSS("XSS", "XSS"),
-        SSRF("SSRF", "SSRF"),
-        XXE("XXE", "XXE"),
-        FILE_INCLUDE("文件包含", "FILE_INCLUDE"),
-        CSRF("CSRF", "CSRF"),
-        DESERIALIZATION("反序列化", "DESERIALIZATION"),
-        AUTH_BYPASS("越权/IDOR", "AUTH_BYPASS"),
-        PATH_TRAVERSAL("路径遍历", "PATH_TRAVERSAL"),
-        DIRECTORY_TRAVERSAL("目录穿越", "DIRECTORY_TRAVERSAL"),
-        SENSITIVE_DATA_EXPOSURE("敏感信息泄露", "SENSITIVE_DATA_EXPOSURE"),
-        LOGIC_FLAW("逻辑漏洞", "LOGIC_FLAW"),
-        RACE_CONDITION("条件竞争", "RACE_CONDITION"),
-        TYPE_CONFUSION("类型混淆", "TYPE_CONFUSION"),
         CUSTOM("AI智能扫描", "CUSTOM");
 
         private String displayName;

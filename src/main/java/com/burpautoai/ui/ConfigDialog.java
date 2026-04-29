@@ -23,7 +23,6 @@ import java.awt.event.MouseEvent;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 import javax.swing.BorderFactory;
@@ -35,748 +34,450 @@ import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JTextField;
 import javax.swing.SwingUtilities;
+import javax.swing.border.TitledBorder;
 import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.RequestBody;
 import okhttp3.Response;
 
-public class ConfigDialog
-extends JDialog {
+public class ConfigDialog extends JDialog {
     private IBurpExtenderCallbacks callbacks;
     private IExtensionHelpers helpers;
+    
     private JComboBox<AIProvider> providerComboBox;
     private JTextField apiKeyField;
+    private JComboBox<String> authTypeComboBox;
+    private JTextField maxTokensField;
     private JTextField apiEndpointField;
     private JTextField modelsEndpointField;
     private JComboBox<String> agentComboBox;
     private javax.swing.JTextArea promptArea;
     private JLabel statusLabel;
+    private JButton quickSaveButton;
     private boolean isUpdatingProvider = false;
-    private static final Color BG_BLACK = Color.WHITE;
-    private static final Color TEXT_GREEN = new Color(33, 37, 41);
-    private static final Color PANEL_DARK = new Color(245, 247, 250);
-    private static final Color BORDER_GREEN = new Color(210, 214, 220);
-    private static final Color INPUT_BG = Color.WHITE;
+
+    private static final String ADD_NEW_PROVIDER = "➕ 新增 AI 接口 / 自定义";
+
+    private static final Color BG_WHITE = Color.WHITE;
+    private static final Color TEXT_DARK = new Color(45, 55, 72);
+    private static final Color PANEL_LIGHT = new Color(248, 250, 252);
+    private static final Color BORDER_COLOR = new Color(226, 232, 240);
+    private static final Color ACCENT_GREEN = new Color(56, 161, 105);
 
     public ConfigDialog(Frame owner, IBurpExtenderCallbacks callbacks, IExtensionHelpers helpers) {
-        super(owner, "AI-Scanner - \u914d\u7f6e\u4e2d\u5fc3", true);
+        super(owner, "配置中心", true);
         this.callbacks = callbacks;
         this.helpers = helpers;
         this.initUI();
-        SwingUtilities.invokeLater(() -> this.loadConfig());
-        this.setSize(800, 800);
+        SwingUtilities.invokeLater(this::loadConfig);
+        this.setSize(850, 900); // 稍微调高以容纳新字段
         this.setLocationRelativeTo(owner);
     }
 
     private void initUI() {
-        this.getContentPane().setBackground(BG_BLACK);
-        this.setLayout(new BorderLayout(15, 15));
+        this.getContentPane().setBackground(BG_WHITE);
+        this.setLayout(new BorderLayout());
+
+        JPanel contentPanel = new JPanel();
+        contentPanel.setLayout(new javax.swing.BoxLayout(contentPanel, javax.swing.BoxLayout.Y_AXIS));
+        contentPanel.setBackground(BG_WHITE);
+        contentPanel.setBorder(BorderFactory.createEmptyBorder(25, 40, 25, 40));
+
+        JLabel titleLabel = new JLabel("配置中心");
+        titleLabel.setForeground(TEXT_DARK);
+        titleLabel.setFont(new Font("微软雅黑", Font.BOLD, 26));
+        titleLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        contentPanel.add(titleLabel);
+        contentPanel.add(javax.swing.Box.createVerticalStrut(20));
+
+        JPanel apiSection = this.createSectionPanel("API 核心设置");
+        this.renderApiFields(apiSection);
+        contentPanel.add(apiSection);
+        contentPanel.add(javax.swing.Box.createVerticalStrut(15));
+
+        JPanel promptSection = this.createSectionPanel("扫描 Prompt 设置");
+        this.renderPromptFields(promptSection);
+        contentPanel.add(promptSection);
+        contentPanel.add(javax.swing.Box.createVerticalStrut(20));
+
+        this.statusLabel = new JLabel("状态: 就绪");
+        this.statusLabel.setForeground(ACCENT_GREEN);
+        this.statusLabel.setFont(new Font("微软雅黑", Font.PLAIN, 14));
+        this.statusLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        contentPanel.add(this.statusLabel);
+        contentPanel.add(javax.swing.Box.createVerticalStrut(15));
+
+        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        buttonPanel.setBackground(BG_WHITE);
+        buttonPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
         
-        JPanel mainWrapper = new JPanel(new BorderLayout(10, 10));
-        mainWrapper.setBackground(BG_BLACK);
-        mainWrapper.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-
-        JPanel mainPanel = new JPanel();
-        mainPanel.setLayout(new javax.swing.BoxLayout(mainPanel, javax.swing.BoxLayout.Y_AXIS));
-        mainPanel.setBackground(BG_BLACK);
-
-        JLabel titleLabel = new JLabel("AI-Scanner\u914d\u7f6e\u4e2d\u5fc3");
-        titleLabel.setForeground(TEXT_GREEN);
-        titleLabel.setFont(new Font("\u5fae\u8f6f\u96c5\u9ed1", 1, 24));
-        titleLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
-        mainPanel.add(titleLabel);
-        mainPanel.add(javax.swing.Box.createVerticalStrut(20));
-
-        JPanel apiPanel = this.createApiConfigPanel();
-        apiPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, 250));
-        mainPanel.add(apiPanel);
+        JButton[] buttons = {
+            createStyledButton("保存配置", true),
+            createStyledButton("验证密钥", false),
+            createStyledButton("获取模型", false),
+            createStyledButton("关闭", false)
+        };
         
-        mainPanel.add(javax.swing.Box.createVerticalStrut(10));
-
-        // Prompt Panel
-        JPanel promptPanel = new JPanel(new GridBagLayout());
-        promptPanel.setBackground(BG_BLACK);
-        promptPanel.setBorder(BorderFactory.createTitledBorder(BorderFactory.createLineBorder(BORDER_GREEN), "Prompt \u8bbe\u7f6e", 0, 0, new Font("\u5fae\u8f6f\u96c5\u9ed1", 1, 14), TEXT_GREEN));
-        GridBagConstraints pgbc = new GridBagConstraints();
-        pgbc.fill = GridBagConstraints.BOTH;
-        pgbc.insets = new Insets(5, 10, 5, 10);
-        pgbc.weightx = 1.0;
-
-        pgbc.gridy = 0;
-        JLabel sysLabel = new JLabel("\u667a\u80fd扫描提示词 (AI Prompt):");
-        sysLabel.setFont(new Font("\u5fae\u8f6f\u96c5\u9ed1", 0, 13));
-        promptPanel.add(sysLabel, pgbc);
+        buttons[0].addActionListener(e -> saveConfig());
+        buttons[1].addActionListener(e -> verifyApiKey());
+        buttons[2].addActionListener(e -> refreshAgents());
+        buttons[3].addActionListener(e -> dispose());
         
-        pgbc.gridy = 1;
-        pgbc.weighty = 1.0;
-        this.promptArea = this.createStyledTextArea();
-        promptPanel.add(new javax.swing.JScrollPane(this.promptArea), pgbc);
-        
-        mainPanel.add(promptPanel);
-        
-        mainWrapper.add(new javax.swing.JScrollPane(mainPanel), "Center");
+        for (int i = 0; i < buttons.length; i++) {
+            buttonPanel.add(buttons[i]);
+            if (i < buttons.length - 1) buttonPanel.add(javax.swing.Box.createHorizontalStrut(15));
+        }
+        contentPanel.add(buttonPanel);
 
-        JPanel bottomPanel = new JPanel(new BorderLayout(10, 10));
-        bottomPanel.setBackground(BG_BLACK);
-        JPanel buttonPanel = new JPanel(new FlowLayout(1, 20, 10));
-        buttonPanel.setBackground(BG_BLACK);
-        JButton saveButton = this.createStyledButton("\u4fdd\u5b58\u914d\u7f6e");
-        saveButton.addActionListener(e -> this.saveConfig());
-        buttonPanel.add(saveButton);
-        JButton verifyButton = this.createStyledButton("\u9a8c\u8bc1Key");
-        verifyButton.addActionListener(e -> this.verifyApiKey());
-        buttonPanel.add(verifyButton);
-        JButton refreshButton = this.createStyledButton("\u83b7\u53d6\u6a21\u578b");
-        refreshButton.addActionListener(e -> this.refreshAgents());
-        buttonPanel.add(refreshButton);
-        JButton closeButton = this.createStyledButton("\u5173\u95ed");
-        closeButton.addActionListener(e -> this.dispose());
-        buttonPanel.add(closeButton);
-        bottomPanel.add((Component)buttonPanel, "North");
-        this.statusLabel = new JLabel("\u72b6\u6001: \u7b49\u5f85\u914d\u7f6e");
-        this.statusLabel.setForeground(TEXT_GREEN);
-        this.statusLabel.setFont(new Font("\u5fae\u8f6f\u96c5\u9ed1", 0, 14));
-        this.statusLabel.setHorizontalAlignment(0);
-        this.statusLabel.setBorder(BorderFactory.createCompoundBorder(BorderFactory.createLineBorder(BORDER_GREEN, 2), BorderFactory.createEmptyBorder(10, 10, 10, 10)));
-        bottomPanel.add((Component)this.statusLabel, "Center");
-        mainPanel.add((Component)bottomPanel, "South");
-        this.add(mainPanel);
+        this.add(new javax.swing.JScrollPane(contentPanel), BorderLayout.CENTER);
     }
 
-    private JPanel createApiConfigPanel() {
+    private JPanel createSectionPanel(String title) {
         JPanel panel = new JPanel(new GridBagLayout());
-        panel.setBackground(BG_BLACK);
-        panel.setBorder(BorderFactory.createEmptyBorder(20, 20, 20, 20));
-        GridBagConstraints gbc = new GridBagConstraints();
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        gbc.insets = new Insets(10, 10, 10, 10);
-        gbc.gridx = 0;
-        gbc.gridy = 0;
-        gbc.weightx = 0.0;
-        JLabel providerLabel = new JLabel("AI\u670d\u52a1:");
-        providerLabel.setForeground(TEXT_GREEN);
-        providerLabel.setFont(new Font("\u5fae\u8f6f\u96c5\u9ed1", 0, 15));
-        panel.add((Component)providerLabel, gbc);
-        gbc.gridx = 1;
-        gbc.weightx = 1.0;
-        JPanel providerPanel = new JPanel(new BorderLayout(10, 0));
-        providerPanel.setBackground(BG_BLACK);
-        this.providerComboBox = this.createProviderComboBox();
-        this.providerComboBox.addActionListener(e -> {
-            if (!this.isUpdatingProvider) {
-                this.onProviderChanged();
-            }
-        });
-        providerPanel.add(this.providerComboBox, "Center");
-        JButton manageButton = this.createSmallButton("\u7ba1\u7406\u7aef\u70b9");
-        manageButton.addActionListener(e -> {
-            EndpointManagerDialog dialog = new EndpointManagerDialog((Frame)SwingUtilities.getWindowAncestor(this));
-            dialog.setVisible(true);
-            this.reloadProviders();
-        });
-        providerPanel.add((Component)manageButton, "East");
-        panel.add((Component)providerPanel, gbc);
-        gbc.gridx = 0;
-        gbc.gridy = 1;
-        gbc.weightx = 0.0;
-        JLabel apiKeyLabel = new JLabel("API Key:");
-        apiKeyLabel.setForeground(TEXT_GREEN);
-        apiKeyLabel.setFont(new Font("\u5fae\u8f6f\u96c5\u9ed1", 0, 15));
-        panel.add((Component)apiKeyLabel, gbc);
-        gbc.gridx = 1;
-        gbc.weightx = 1.0;
-        this.apiKeyField = this.createStyledTextField();
-        panel.add((Component)this.apiKeyField, gbc);
-        gbc.gridx = 0;
-        gbc.gridy = 2;
-        gbc.weightx = 0.0;
-        JLabel endpointLabel = new JLabel("API\u7aef\u70b9:");
-        endpointLabel.setForeground(TEXT_GREEN);
-        endpointLabel.setFont(new Font("\u5fae\u8f6f\u96c5\u9ed1", 0, 15));
-        panel.add((Component)endpointLabel, gbc);
-        gbc.gridx = 1;
-        gbc.weightx = 1.0;
-        this.apiEndpointField = this.createStyledTextField();
-        this.apiEndpointField.setEditable(false);
-        this.apiEndpointField.setBackground(PANEL_DARK);
-        panel.add((Component)this.apiEndpointField, gbc);
-        gbc.gridx = 0;
-        gbc.gridy = 3;
-        gbc.weightx = 0.0;
-        JLabel modelsLabel = new JLabel("\u6a21\u578b\u7aef\u70b9:");
-        modelsLabel.setForeground(TEXT_GREEN);
-        modelsLabel.setFont(new Font("\u5fae\u8f6f\u96c5\u9ed1", 0, 15));
-        panel.add((Component)modelsLabel, gbc);
-        gbc.gridx = 1;
-        gbc.weightx = 1.0;
-        this.modelsEndpointField = this.createStyledTextField();
-        this.modelsEndpointField.setEditable(false);
-        this.modelsEndpointField.setBackground(PANEL_DARK);
-        panel.add((Component)this.modelsEndpointField, gbc);
-        gbc.gridx = 0;
-        gbc.gridy = 4;
-        gbc.weightx = 0.0;
-        JLabel agentLabel = new JLabel("\u9009\u62e9\u6a21\u578b:");
-        agentLabel.setForeground(TEXT_GREEN);
-        agentLabel.setFont(new Font("\u5fae\u8f6f\u96c5\u9ed1", 0, 15));
-        panel.add((Component)agentLabel, gbc);
-        gbc.gridx = 1;
-        gbc.weightx = 1.0;
-        this.agentComboBox = this.createStyledComboBox();
-        panel.add(this.agentComboBox, gbc);
+        panel.setBackground(BG_WHITE);
+        TitledBorder border = BorderFactory.createTitledBorder(
+            BorderFactory.createLineBorder(BORDER_COLOR, 1, true), title, TitledBorder.LEFT, TitledBorder.TOP, 
+            new Font("微软雅黑", Font.BOLD, 14), TEXT_DARK
+        );
+        panel.setBorder(BorderFactory.createCompoundBorder(border, BorderFactory.createEmptyBorder(12, 15, 12, 15)));
+        panel.setAlignmentX(Component.LEFT_ALIGNMENT);
         return panel;
     }
 
-    private JTextField createStyledTextField() {
-        JTextField field = new JTextField(40);
-        field.setBackground(INPUT_BG);
-        field.setForeground(TEXT_GREEN);
-        field.setCaretColor(TEXT_GREEN);
-        field.setBorder(BorderFactory.createCompoundBorder(BorderFactory.createLineBorder(BORDER_GREEN, 2), BorderFactory.createEmptyBorder(10, 12, 10, 12)));
-        field.setFont(new Font("Consolas", 0, 14));
-        return field;
+    private void renderApiFields(JPanel panel) {
+        GridBagConstraints gbc = new GridBagConstraints();
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.insets = new Insets(6, 5, 6, 5);
+
+        // AI Provider
+        addLabel(panel, "AI 服务商:", 0);
+        JPanel providerRow = new JPanel(new BorderLayout(10, 0));
+        providerRow.setBackground(BG_WHITE);
+        this.providerComboBox = createProviderComboBox();
+        this.providerComboBox.addActionListener(e -> { if (!isUpdatingProvider) onProviderChanged(); });
+        providerRow.add(this.providerComboBox, BorderLayout.CENTER);
+        
+        JPanel pBtns = new JPanel(new FlowLayout(FlowLayout.RIGHT, 5, 0));
+        pBtns.setBackground(BG_WHITE);
+        this.quickSaveButton = createSmallButton("💾 存为端点");
+        this.quickSaveButton.addActionListener(e -> quickSaveEndpoint());
+        pBtns.add(this.quickSaveButton);
+        JButton mBtn = createSmallButton("⚙️ 管理列表");
+        mBtn.addActionListener(e -> {
+            new EndpointManagerDialog((Frame)SwingUtilities.getWindowAncestor(this)).setVisible(true);
+            reloadProviders();
+        });
+        pBtns.add(mBtn);
+        providerRow.add(pBtns, BorderLayout.EAST);
+        addComponent(panel, providerRow, 0);
+
+        // API Key
+        addLabel(panel, "API Key:", 1);
+        this.apiKeyField = createStyledTextField();
+        addComponent(panel, this.apiKeyField, 1);
+
+        // Auth Type
+        addLabel(panel, "认证方式:", 2);
+        this.authTypeComboBox = new JComboBox<>(new String[]{"bearer", "x-api-key", "api-key"});
+        this.authTypeComboBox.setFont(new Font("微软雅黑", Font.PLAIN, 13));
+        this.authTypeComboBox.setBackground(BG_WHITE);
+        addComponent(panel, this.authTypeComboBox, 2);
+
+        // Max Tokens (新增自定义项)
+        addLabel(panel, "最大生成长度:", 3);
+        this.maxTokensField = createStyledTextField();
+        this.maxTokensField.setToolTipText("单次分析允许生成的最大 Token 数 (如 4096, 8192, 16384)");
+        addComponent(panel, this.maxTokensField, 3);
+
+        // API Endpoint
+        addLabel(panel, "API 端点:", 4);
+        this.apiEndpointField = createStyledTextField();
+        this.apiEndpointField.addFocusListener(new java.awt.event.FocusAdapter() {
+            @Override
+            public void focusLost(java.awt.event.FocusEvent e) { autoCompleteUrls(); }
+        });
+        addComponent(panel, this.apiEndpointField, 4);
+
+        // Models Endpoint
+        addLabel(panel, "模型列表端点:", 5);
+        this.modelsEndpointField = createStyledTextField();
+        addComponent(panel, this.modelsEndpointField, 5);
+
+        // Current Model
+        addLabel(panel, "当前模型:", 6);
+        this.agentComboBox = new JComboBox<>();
+        this.agentComboBox.setBackground(BG_WHITE);
+        this.agentComboBox.setFont(new Font("微软雅黑", Font.PLAIN, 13));
+        addComponent(panel, this.agentComboBox, 6);
     }
 
-    private javax.swing.JTextArea createStyledTextArea() {
-        javax.swing.JTextArea area = new javax.swing.JTextArea(5, 40);
-        area.setBackground(INPUT_BG);
-        area.setForeground(TEXT_GREEN);
-        area.setCaretColor(TEXT_GREEN);
-        area.setLineWrap(true);
-        area.setWrapStyleWord(true);
-        area.setBorder(BorderFactory.createEmptyBorder(5, 8, 5, 8));
-        area.setFont(new Font("Consolas", 0, 13));
-        return area;
+    private void renderPromptFields(JPanel panel) {
+        GridBagConstraints gbc = new GridBagConstraints();
+        gbc.fill = GridBagConstraints.BOTH;
+        gbc.weightx = 1.0;
+        gbc.weighty = 1.0;
+        this.promptArea = createStyledTextArea();
+        panel.add(new javax.swing.JScrollPane(this.promptArea), gbc);
     }
 
-    private JComboBox<AIProvider> createProviderComboBox() {
-        JComboBox<AIProvider> comboBox = new JComboBox<AIProvider>();
-        comboBox.setBackground(INPUT_BG);
-        comboBox.setForeground(TEXT_GREEN);
-        comboBox.setFont(new Font("\u5fae\u8f6f\u96c5\u9ed1", 0, 14));
-        comboBox.setBorder(BorderFactory.createCompoundBorder(BorderFactory.createLineBorder(BORDER_GREEN, 2), BorderFactory.createEmptyBorder(8, 10, 8, 10)));
-        List<AIProvider> allProviders = ConfigManager.getInstance().getConfig().getCustomProviders();
-        if (allProviders != null) {
-            for (AIProvider provider : allProviders) {
-                comboBox.addItem(provider);
-            }
+    private void addLabel(JPanel p, String text, int row) {
+        GridBagConstraints gbc = new GridBagConstraints();
+        gbc.gridx = 0; gbc.gridy = row;
+        gbc.anchor = GridBagConstraints.WEST;
+        gbc.insets = new Insets(6, 5, 6, 15);
+        JLabel label = new JLabel(text);
+        label.setFont(new Font("微软雅黑", Font.PLAIN, 14));
+        label.setForeground(TEXT_DARK);
+        p.add(label, gbc);
+    }
+
+    private void addComponent(JPanel p, java.awt.Component c, int row) {
+        GridBagConstraints gbc = new GridBagConstraints();
+        gbc.gridx = 1; gbc.gridy = row;
+        gbc.weightx = 1.0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.insets = new Insets(6, 5, 6, 5);
+        p.add(c, gbc);
+    }
+
+    private void onProviderChanged() {
+        AIProvider s = (AIProvider)providerComboBox.getSelectedItem();
+        if (s == null) return;
+        
+        if (s.getName().equals(ADD_NEW_PROVIDER)) {
+            apiKeyField.setText("");
+            apiEndpointField.setText("");
+            modelsEndpointField.setText("");
+            maxTokensField.setText("8192");
+            authTypeComboBox.setSelectedIndex(0);
+            agentComboBox.removeAllItems();
+            agentComboBox.addItem("等待填写...");
+            quickSaveButton.setVisible(true);
+            statusLabel.setText("状态: 请填写新的 API 配置信息");
+        } else {
+            apiKeyField.setText(ConfigManager.getInstance().getConfig().getApiKey());
+            apiEndpointField.setText(s.getApiEndpoint());
+            modelsEndpointField.setText(s.getModelsEndpoint());
+            maxTokensField.setText(String.valueOf(ConfigManager.getInstance().getConfig().getMaxTokens()));
+            authTypeComboBox.setSelectedItem(s.getAuthType().toLowerCase());
+            quickSaveButton.setVisible(false);
+            statusLabel.setText("状态: 已加载端点 " + s.getName());
         }
-        comboBox.addItem(new AIProvider("\u81ea\u5b9a\u4e49", "", "", "bearer", true));
-        return comboBox;
-    }
-
-    private JComboBox<String> createStyledComboBox() {
-        JComboBox<String> comboBox = new JComboBox<String>(new String[]{"\u8bf7\u5148\u83b7\u53d6\u6a21\u578b\u5217\u8868"});
-        comboBox.setBackground(INPUT_BG);
-        comboBox.setForeground(TEXT_GREEN);
-        comboBox.setFont(new Font("\u5fae\u8f6f\u96c5\u9ed1", 0, 14));
-        comboBox.setBorder(BorderFactory.createCompoundBorder(BorderFactory.createLineBorder(BORDER_GREEN, 2), BorderFactory.createEmptyBorder(8, 10, 8, 10)));
-        return comboBox;
-    }
-
-    private JButton createStyledButton(String text) {
-        final JButton button = new JButton(text);
-        button.setBackground(PANEL_DARK);
-        button.setForeground(TEXT_GREEN);
-        button.setBorder(BorderFactory.createLineBorder(BORDER_GREEN, 2));
-        button.setFocusPainted(false);
-        button.setFont(new Font("\u5fae\u8f6f\u96c5\u9ed1", 1, 14));
-        button.setCursor(new Cursor(12));
-        button.setPreferredSize(new Dimension(130, 45));
-        button.addMouseListener(new MouseAdapter(){
-
-            @Override
-            public void mouseEntered(MouseEvent evt) {
-                button.setBackground(new Color(233, 236, 239));
-            }
-
-            @Override
-            public void mouseExited(MouseEvent evt) {
-                button.setBackground(PANEL_DARK);
-            }
-        });
-        return button;
-    }
-
-    private JButton createSmallButton(String text) {
-        final JButton button = new JButton(text);
-        button.setBackground(PANEL_DARK);
-        button.setForeground(TEXT_GREEN);
-        button.setBorder(BorderFactory.createLineBorder(BORDER_GREEN, 1));
-        button.setFocusPainted(false);
-        button.setFont(new Font("\u5fae\u8f6f\u96c5\u9ed1", 0, 12));
-        button.setCursor(new Cursor(12));
-        button.addMouseListener(new MouseAdapter(){
-
-            @Override
-            public void mouseEntered(MouseEvent evt) {
-                button.setBackground(new Color(233, 236, 239));
-            }
-
-            @Override
-            public void mouseExited(MouseEvent evt) {
-                button.setBackground(PANEL_DARK);
-            }
-        });
-        return button;
     }
 
     private void loadConfig() {
         ConfigManager.Config config = ConfigManager.getInstance().getConfig();
-        this.callbacks.printOutput("====== \u52a0\u8f7d\u914d\u7f6e ======");
-        this.apiKeyField.setText(config.getApiKey() != null ? config.getApiKey() : "");
-        this.promptArea.setText(config.getPrompt() != null ? config.getPrompt() : "");
-        this.callbacks.printOutput("Key: " + (config.getApiKey() != null && !config.getApiKey().isEmpty() ? "\u5df2\u52a0\u8f7d" : "\u7a7a"));
-        this.agentComboBox.removeAllItems();
-        List<String> models = config.getAvailableModels();
-        if (models != null && !models.isEmpty()) {
-            for (String model : models) {
-                this.agentComboBox.addItem(model);
-            }
-            if (config.getSelectedAgent() != null && !config.getSelectedAgent().isEmpty()) {
-                this.agentComboBox.setSelectedItem(config.getSelectedAgent());
-            }
-            this.callbacks.printOutput("\u6a21\u578b: \u5df2\u52a0\u8f7d" + models.size() + "\u4e2a\uff0c\u9009\u4e2d: " + config.getSelectedAgent());
+        isUpdatingProvider = true;
+        apiKeyField.setText(config.getApiKey());
+        promptArea.setText(config.getPrompt());
+        apiEndpointField.setText(config.getApiEndpoint());
+        modelsEndpointField.setText(config.getModelsEndpoint());
+        maxTokensField.setText(String.valueOf(config.getMaxTokens()));
+        authTypeComboBox.setSelectedItem(config.getAuthType().toLowerCase());
+        
+        agentComboBox.removeAllItems();
+        if (config.getAvailableModels() != null && !config.getAvailableModels().isEmpty()) {
+            for (String m : config.getAvailableModels()) agentComboBox.addItem(m);
+            agentComboBox.setSelectedItem(config.getSelectedAgent());
         } else {
-            this.agentComboBox.addItem("\u8bf7\u5148\u83b7\u53d6\u6a21\u578b\u5217\u8868");
-            this.callbacks.printOutput("\u6a21\u578b: \u65e0");
+            agentComboBox.addItem("请获取模型列表");
         }
-        String apiEndpoint = config.getApiEndpoint();
-        String modelsEndpoint = config.getModelsEndpoint();
-        this.isUpdatingProvider = true;
-        AIProvider matchedProvider = null;
-        if (apiEndpoint != null && !apiEndpoint.isEmpty()) {
-            AIProvider provider;
-            int i;
-            this.callbacks.printOutput("\u6839\u636e\u7aef\u70b9\u5339\u914d\u670d\u52a1\u5546: " + apiEndpoint);
-            for (i = 0; i < this.providerComboBox.getItemCount(); ++i) {
-                String providerModelsEndpoint;
-                provider = this.providerComboBox.getItemAt(i);
-                if (provider.getName().equals("\u81ea\u5b9a\u4e49")) continue;
-                String providerApiEndpoint = provider.getApiEndpoint();
-                if (providerApiEndpoint != null && providerApiEndpoint.equals(apiEndpoint)) {
-                    matchedProvider = provider;
-                    this.callbacks.printOutput("\u627e\u5230\u5339\u914d\u7684\u670d\u52a1\u5546: " + provider.getName() + " (\u901a\u8fc7API\u7aef\u70b9)");
-                    break;
-                }
-                if (modelsEndpoint == null || modelsEndpoint.isEmpty() || (providerModelsEndpoint = provider.getModelsEndpoint()) == null || !providerModelsEndpoint.equals(modelsEndpoint)) continue;
-                matchedProvider = provider;
-                this.callbacks.printOutput("\u627e\u5230\u5339\u914d\u7684\u670d\u52a1\u5546: " + provider.getName() + " (\u901a\u8fc7\u6a21\u578b\u7aef\u70b9)");
+        
+        for (int i = 0; i < providerComboBox.getItemCount(); i++) {
+            if (providerComboBox.getItemAt(i).getName().equals(config.getSelectedProvider())) {
+                providerComboBox.setSelectedIndex(i);
                 break;
             }
-            if (matchedProvider == null) {
-                this.callbacks.printOutput("\u672a\u627e\u5230\u5339\u914d\u7684\u9884\u8bbe\u670d\u52a1\u5546\uff0c\u8bbe\u7f6e\u4e3a\u81ea\u5b9a\u4e49");
-                for (i = 0; i < this.providerComboBox.getItemCount(); ++i) {
-                    provider = this.providerComboBox.getItemAt(i);
-                    if (!provider.getName().equals("\u81ea\u5b9a\u4e49")) continue;
-                    matchedProvider = provider;
-                    break;
-                }
-            }
-        } else {
-            String selectedProvider = config.getSelectedProvider();
-            if (selectedProvider != null && !selectedProvider.isEmpty()) {
-                this.callbacks.printOutput("\u4f7f\u7528\u4fdd\u5b58\u7684\u670d\u52a1\u5546\u540d\u79f0: " + selectedProvider);
-                for (int i = 0; i < this.providerComboBox.getItemCount(); ++i) {
-                    AIProvider provider = this.providerComboBox.getItemAt(i);
-                    if (!provider.getName().equals(selectedProvider)) continue;
-                    matchedProvider = provider;
-                    break;
-                }
-            }
         }
-        if (matchedProvider != null) {
-            this.providerComboBox.setSelectedItem(matchedProvider);
-            this.callbacks.printOutput("AI\u670d\u52a1\u5df2\u8bbe\u7f6e\u4e3a: " + matchedProvider.getName());
-        }
-        this.isUpdatingProvider = false;
-        SwingUtilities.invokeLater(() -> {
-            AIProvider currentProvider;
-            if (apiEndpoint != null && !apiEndpoint.isEmpty()) {
-                this.apiEndpointField.setText(apiEndpoint);
-            }
-            if (modelsEndpoint != null && !modelsEndpoint.isEmpty()) {
-                this.modelsEndpointField.setText(modelsEndpoint);
-            }
-            if ((currentProvider = (AIProvider)this.providerComboBox.getSelectedItem()) != null && currentProvider.getName().equals("\u81ea\u5b9a\u4e49")) {
-                this.apiEndpointField.setEditable(true);
-                this.modelsEndpointField.setEditable(true);
-                this.apiEndpointField.setBackground(INPUT_BG);
-                this.modelsEndpointField.setBackground(INPUT_BG);
-            } else {
-                this.apiEndpointField.setEditable(false);
-                this.modelsEndpointField.setEditable(false);
-                this.apiEndpointField.setBackground(PANEL_DARK);
-                this.modelsEndpointField.setBackground(PANEL_DARK);
-            }
-        });
-        this.callbacks.printOutput("====== \u52a0\u8f7d\u5b8c\u6210 ======");
-    }
-
-    private void onProviderChanged() {
-        AIProvider selected = (AIProvider)this.providerComboBox.getSelectedItem();
-        if (selected == null) {
-            return;
-        }
-        ConfigManager.Config config = ConfigManager.getInstance().getConfig();
-        if (selected.getName().equals("\u81ea\u5b9a\u4e49")) {
-            this.apiEndpointField.setEditable(true);
-            this.modelsEndpointField.setEditable(true);
-            this.apiEndpointField.setBackground(INPUT_BG);
-            this.modelsEndpointField.setBackground(INPUT_BG);
-            if (config.getApiEndpoint() != null && !config.getApiEndpoint().isEmpty()) {
-                this.apiEndpointField.setText(config.getApiEndpoint());
-            }
-            if (config.getModelsEndpoint() != null && !config.getModelsEndpoint().isEmpty()) {
-                this.modelsEndpointField.setText(config.getModelsEndpoint());
-            }
-            this.statusLabel.setText("\u72b6\u6001: \u81ea\u5b9a\u4e49\u6a21\u5f0f - \u53ef\u624b\u52a8\u4fee\u6539\u7aef\u70b9");
-            this.statusLabel.setForeground(new Color(255, 255, 0));
-        } else {
-            this.apiEndpointField.setEditable(false);
-            this.modelsEndpointField.setEditable(false);
-            this.apiEndpointField.setBackground(PANEL_DARK);
-            this.modelsEndpointField.setBackground(PANEL_DARK);
-            this.apiEndpointField.setText(selected.getApiEndpoint());
-            this.modelsEndpointField.setText(selected.getModelsEndpoint());
-            this.statusLabel.setText("\u72b6\u6001: \u5df2\u9009\u62e9 " + selected.getName());
-            this.statusLabel.setForeground(TEXT_GREEN);
-        }
-    }
-
-    private void reloadProviders() {
-        this.isUpdatingProvider = true;
-        AIProvider currentSelected = (AIProvider)this.providerComboBox.getSelectedItem();
-        String currentName = currentSelected != null ? currentSelected.getName() : "";
-        this.providerComboBox.removeAllItems();
-        List<AIProvider> allProviders = ConfigManager.getInstance().getConfig().getCustomProviders();
-        if (allProviders != null) {
-            for (AIProvider provider : allProviders) {
-                this.providerComboBox.addItem(provider);
-            }
-        }
-        this.providerComboBox.addItem(new AIProvider("\u81ea\u5b9a\u4e49", "", "", "bearer", true));
-        for (int i = 0; i < this.providerComboBox.getItemCount(); ++i) {
-            if (!this.providerComboBox.getItemAt(i).getName().equals(currentName)) continue;
-            this.providerComboBox.setSelectedIndex(i);
-            break;
-        }
-        this.isUpdatingProvider = false;
+        isUpdatingProvider = false;
+        quickSaveButton.setVisible(providerComboBox.getSelectedItem().toString().equals(ADD_NEW_PROVIDER));
     }
 
     private void saveConfig() {
-        Object selectedItem;
-        ConfigManager.Config config = ConfigManager.getInstance().getConfig();
-        config.setApiKey(this.apiKeyField.getText().trim());
-        config.setApiEndpoint(this.apiEndpointField.getText().trim());
-        config.setModelsEndpoint(this.modelsEndpointField.getText().trim());
-        config.setPrompt(this.promptArea.getText().trim());
-        AIProvider selectedProvider = (AIProvider)this.providerComboBox.getSelectedItem();
-        if (selectedProvider != null) {
-            config.setSelectedProvider(selectedProvider.getName());
+        ConfigManager.Config c = ConfigManager.getInstance().getConfig();
+        try {
+            int mt = Integer.parseInt(maxTokensField.getText().trim());
+            c.setMaxTokens(mt);
+        } catch (Exception e) {
+            c.setMaxTokens(8192);
         }
-        if ((selectedItem = this.agentComboBox.getSelectedItem()) != null && !selectedItem.toString().equals("\u8bf7\u5148\u83b7\u53d6\u6a21\u578b\u5217\u8868")) {
-            config.setSelectedAgent(selectedItem.toString());
+        
+        c.setApiKey(apiKeyField.getText().trim());
+        c.setApiEndpoint(apiEndpointField.getText().trim());
+        c.setModelsEndpoint(modelsEndpointField.getText().trim());
+        c.setPrompt(promptArea.getText().trim());
+        c.setAuthType((String)authTypeComboBox.getSelectedItem());
+        
+        AIProvider p = (AIProvider)providerComboBox.getSelectedItem();
+        if (p != null && !p.getName().equals(ADD_NEW_PROVIDER)) {
+            c.setSelectedProvider(p.getName());
+        }
+        Object m = agentComboBox.getSelectedItem();
+        if (m != null && !m.toString().contains("获取") && !m.toString().contains("等待")) {
+            c.setSelectedAgent(m.toString());
         }
         ConfigManager.getInstance().saveConfig();
-        this.statusLabel.setText("\u72b6\u6001: \u914d\u7f6e\u5df2\u4fdd\u5b58");
-        this.statusLabel.setForeground(TEXT_GREEN);
-        this.callbacks.printOutput("[配置] 成功保存设置，API 验证需手动触发。");
+        statusLabel.setText("状态: 配置已成功保存");
+    }
+
+    private void reloadProviders() {
+        isUpdatingProvider = true;
+        AIProvider cur = (AIProvider)providerComboBox.getSelectedItem();
+        String name = cur != null ? cur.getName() : "";
+        providerComboBox.removeAllItems();
+        for (AIProvider p : ConfigManager.getInstance().getConfig().getAllProviders()) providerComboBox.addItem(p);
+        providerComboBox.addItem(new AIProvider(ADD_NEW_PROVIDER, "", "", "bearer", true));
+        for (int i = 0; i < providerComboBox.getItemCount(); i++) {
+            if (providerComboBox.getItemAt(i).getName().equals(name)) { providerComboBox.setSelectedIndex(i); break; }
+        }
+        isUpdatingProvider = false;
+    }
+
+    private void quickSaveEndpoint() {
+        String name = JOptionPane.showInputDialog(this, "保存当前配置为新端点，请输入名称:", "快速保存", JOptionPane.QUESTION_MESSAGE);
+        if (name != null && !name.trim().isEmpty()) {
+            AIProvider newP = new AIProvider(
+                name.trim(), 
+                apiEndpointField.getText().trim(), 
+                modelsEndpointField.getText().trim(), 
+                (String)authTypeComboBox.getSelectedItem(), 
+                true
+            );
+            ConfigManager.getInstance().getConfig().getCustomProviders().add(newP);
+            ConfigManager.getInstance().saveConfig();
+            reloadProviders();
+            for (int i = 0; i < providerComboBox.getItemCount(); i++) {
+                if (providerComboBox.getItemAt(i).getName().equals(name.trim())) {
+                    providerComboBox.setSelectedIndex(i);
+                    break;
+                }
+            }
+            JOptionPane.showMessageDialog(this, "端点已存入管理列表。");
+        }
+    }
+
+    private void autoCompleteUrls() {
+        String current = apiEndpointField.getText().trim();
+        if (current.endsWith("/v1") || current.endsWith("/v1/")) {
+            apiEndpointField.setText(com.burpautoai.util.UrlUtil.fixChatEndpoint(current));
+            if (modelsEndpointField.getText().trim().isEmpty() || modelsEndpointField.getText().contains("/v1")) {
+                modelsEndpointField.setText(com.burpautoai.util.UrlUtil.fixModelsEndpoint(current));
+            }
+        }
     }
 
     private void verifyApiKey() {
-        Object selectedModel = this.agentComboBox.getSelectedItem();
-        if (selectedModel == null || selectedModel.toString().trim().isEmpty() || selectedModel.toString().equals("\u8bf7\u5148\u83b7\u53d6\u6a21\u578b\u5217\u8868")) {
-            this.statusLabel.setText("\u72b6\u6001: \u8bf7\u5148\u9009\u62e9\u6a21\u578b");
-            this.statusLabel.setForeground(new Color(255, 0, 0));
-            JOptionPane.showMessageDialog(this, "\u8bf7\u5148\u9009\u62e9\u6a21\u578b", "\u63d0\u793a", 2);
+        Object mod = agentComboBox.getSelectedItem();
+        if (mod == null || mod.toString().contains("获取") || mod.toString().contains("等待")) {
+            JOptionPane.showMessageDialog(this, "请先填写 API 信息并选择一个有效的模型。");
             return;
         }
-        this.statusLabel.setText("\u72b6\u6001: \u9a8c\u8bc1\u4e2d...");
-        this.statusLabel.setForeground(new Color(255, 255, 0));
+        statusLabel.setText("状态: 正在验证...");
         new Thread(() -> {
-            String apiKey = this.apiKeyField.getText().trim();
-            String endpoint = this.apiEndpointField.getText().trim();
-            String model = selectedModel.toString().trim();
-            if (apiKey.isEmpty()) {
-                SwingUtilities.invokeLater(() -> {
-                    this.statusLabel.setText("\u72b6\u6001: API Key\u4e3a\u7a7a");
-                    this.statusLabel.setForeground(new Color(255, 0, 0));
-                    JOptionPane.showMessageDialog(this, "\u8bf7\u5148\u8f93\u5165API Key", "\u9519\u8bef", 0);
-                });
-                return;
-            }
-            if (endpoint.isEmpty()) {
-                SwingUtilities.invokeLater(() -> {
-                    this.statusLabel.setText("\u72b6\u6001: API\u7aef\u70b9\u4e3a\u7a7a");
-                    this.statusLabel.setForeground(new Color(255, 0, 0));
-                    JOptionPane.showMessageDialog(this, "\u8bf7\u5148\u8f93\u5165API\u7aef\u70b9", "\u9519\u8bef", 0);
-                });
-                return;
-            }
             try {
-                OkHttpClient client = new OkHttpClient.Builder().connectTimeout(15L, TimeUnit.SECONDS).readTimeout(15L, TimeUnit.SECONDS).build();
-                String testJson = "{\"model\":\"" + model + "\",\"messages\":[{\"role\":\"user\",\"content\":\"test\"}],\"max_tokens\":5}";
-                this.callbacks.printOutput("\u9a8c\u8bc1API - \u7aef\u70b9: " + endpoint);
-                this.callbacks.printOutput("\u9a8c\u8bc1API - \u6a21\u578b: " + model);
-                this.callbacks.printOutput("\u9a8c\u8bc1API - \u8bf7\u6c42: " + testJson);
-                RequestBody body = RequestBody.create(MediaType.parse("application/json; charset=utf-8"), testJson);
-                Request.Builder requestBuilder = new Request.Builder().url(endpoint).addHeader("Content-Type", "application/json; charset=utf-8").post(body);
-                this.setupAuthHeader(requestBuilder, endpoint, apiKey);
-                Request request = requestBuilder.build();
-                this.callbacks.printOutput("\u9a8c\u8bc1API - \u8bf7\u6c42\u5934: " + request.headers().toString());
-                try (Response response = client.newCall(request).execute()) {
-                    String responseBody = "";
-                    int responseCode = response.code();
-                    if (response.body() != null) {
-                        responseBody = new String(response.body().bytes(), StandardCharsets.UTF_8);
-                    }
-                    this.callbacks.printOutput("\u9a8c\u8bc1API - \u54cd\u5e94\u7801: " + responseCode);
-                    this.callbacks.printOutput("\u9a8c\u8bc1API - \u54cd\u5e94\u4f53: " + responseBody);
-                    String finalResponseBody = responseBody;
-                    boolean finalSuccess = response.isSuccessful();
+                OkHttpClient client = new OkHttpClient.Builder().connectTimeout(10, TimeUnit.SECONDS).build();
+                String testJson = "{\"model\":\"" + mod + "\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"max_tokens\":1}";
+                RequestBody body = RequestBody.create(MediaType.parse("application/json"), testJson);
+                Request.Builder rb = new Request.Builder().url(apiEndpointField.getText().trim()).post(body);
+                setupAuthHeader(rb, apiKeyField.getText().trim());
+                try (Response resp = client.newCall(rb.build()).execute()) {
+                    boolean ok = resp.isSuccessful();
                     SwingUtilities.invokeLater(() -> {
-                        if (finalSuccess) {
-                            this.statusLabel.setText("\u72b6\u6001: API Key\u9a8c\u8bc1\u6210\u529f");
-                            this.statusLabel.setForeground(TEXT_GREEN);
-                            this.callbacks.printOutput("API Key\u9a8c\u8bc1\u6210\u529f");
-                            JOptionPane.showMessageDialog(this, "API Key\u9a8c\u8bc1\u6210\u529f\uff01\n\n\u6a21\u578b: " + model + "\n\u54cd\u5e94\u7801: " + responseCode, "\u9a8c\u8bc1\u6210\u529f", 1);
-                        } else {
-                            this.statusLabel.setText("\u72b6\u6001: API Key\u9a8c\u8bc1\u5931\u8d25 (HTTP " + responseCode + ")");
-                            this.statusLabel.setForeground(new Color(255, 0, 0));
-                            this.callbacks.printError("API Key\u9a8c\u8bc1\u5931\u8d25: HTTP " + responseCode);
-                            this.callbacks.printError("\u54cd\u5e94\u5185\u5bb9: " + finalResponseBody);
-                            String errorMsg = "API Key\u9a8c\u8bc1\u5931\u8d25\uff01\n\n\u54cd\u5e94\u7801: HTTP " + responseCode + "\n\u7aef\u70b9: " + endpoint + "\n\u6a21\u578b: " + model;
-                            if (finalResponseBody.length() > 0 && finalResponseBody.length() < 200) {
-                                errorMsg = errorMsg + "\n\n\u9519\u8bef\u4fe1\u606f: " + finalResponseBody;
-                            }
-                            JOptionPane.showMessageDialog(this, errorMsg, "\u9a8c\u8bc1\u5931\u8d25", 0);
-                        }
+                        statusLabel.setText(ok ? "状态: 验证成功" : "状态: 验证失败 (" + resp.code() + ")");
+                        JOptionPane.showMessageDialog(this, ok ? "API Key 验证通过！" : "验证失败，请检查配置。");
                     });
                 }
-            }
-            catch (IOException e) {
-                SwingUtilities.invokeLater(() -> {
-                    this.statusLabel.setText("\u72b6\u6001: \u8fde\u63a5\u5931\u8d25 \u2717");
-                    this.statusLabel.setForeground(new Color(255, 0, 0));
-                    JOptionPane.showMessageDialog(this, "\u8fde\u63a5\u5931\u8d25\uff1a" + e.getMessage(), "\u9519\u8bef", 0);
-                });
-                this.callbacks.printError("API\u9a8c\u8bc1\u5f02\u5e38: " + e.getMessage());
+            } catch (Exception e) {
+                SwingUtilities.invokeLater(() -> statusLabel.setText("状态: 网络连接异常"));
             }
         }).start();
     }
 
     private void refreshAgents() {
-        this.statusLabel.setText("\u72b6\u6001: \u6b63\u5728\u83b7\u53d6\u6a21\u578b\u5217\u8868...");
-        this.statusLabel.setForeground(new Color(255, 255, 0));
+        if (apiEndpointField.getText().trim().isEmpty()) {
+            JOptionPane.showMessageDialog(this, "请先填写 API 端点。");
+            return;
+        }
+        statusLabel.setText("状态: 正在获取模型列表...");
         new Thread(() -> {
-            String apiKey = this.apiKeyField.getText().trim();
-            String modelsEndpoint = this.modelsEndpointField.getText().trim();
-            this.callbacks.printOutput("\u83b7\u53d6\u6a21\u578b\u5217\u8868 - \u7aef\u70b9: " + modelsEndpoint);
-            if (apiKey.isEmpty()) {
-                SwingUtilities.invokeLater(() -> {
-                    this.statusLabel.setText("\u72b6\u6001: \u8bf7\u5148\u8f93\u5165API Key \u2717");
-                    this.statusLabel.setForeground(new Color(255, 0, 0));
-                    JOptionPane.showMessageDialog(this, "\u8bf7\u5148\u8f93\u5165API Key", "\u9519\u8bef", 0);
-                });
-                return;
-            }
-            if (modelsEndpoint.isEmpty()) {
-                SwingUtilities.invokeLater(() -> {
-                    this.statusLabel.setText("\u72b6\u6001: \u8bf7\u5148\u8f93\u5165\u6a21\u578b\u7aef\u70b9 \u2717");
-                    this.statusLabel.setForeground(new Color(255, 0, 0));
-                    JOptionPane.showMessageDialog(this, "\u8bf7\u5148\u8f93\u5165\u6a21\u578b\u7aef\u70b9", "\u9519\u8bef", 0);
-                });
-                return;
-            }
             try {
-                OkHttpClient client = new OkHttpClient.Builder().connectTimeout(15L, TimeUnit.SECONDS).readTimeout(15L, TimeUnit.SECONDS).build();
-                Request.Builder requestBuilder = new Request.Builder().url(modelsEndpoint).get();
-                this.setupAuthHeader(requestBuilder, modelsEndpoint, apiKey);
-                Request request = requestBuilder.build();
-                try (Response response = client.newCall(request).execute()) {
-                    String responseBody = "";
-                    int responseCode = response.code();
-                    if (response.body() != null) {
-                        responseBody = new String(response.body().bytes(), StandardCharsets.UTF_8);
-                    }
-                    this.callbacks.printOutput("\u83b7\u53d6\u6a21\u578b - \u54cd\u5e94\u7801: " + responseCode);
-                    this.callbacks.printOutput("\u83b7\u53d6\u6a21\u578b - \u54cd\u5e94\u4f53: " + responseBody);
-                    if (response.isSuccessful()) {
-                        int i;
-                        JsonObject jsonResponse = JsonParser.parseString(responseBody).getAsJsonObject();
-                        ArrayList<String> models = new ArrayList<String>();
-                        if (jsonResponse.has("data")) {
-                            JsonArray data = jsonResponse.getAsJsonArray("data");
-                            for (i = 0; i < data.size(); ++i) {
-                                JsonObject model = data.get(i).getAsJsonObject();
-                                if (!model.has("id")) continue;
-                                models.add(model.get("id").getAsString());
-                            }
-                        } else if (jsonResponse.has("models")) {
-                            JsonArray modelsArray = jsonResponse.getAsJsonArray("models");
-                            for (i = 0; i < modelsArray.size(); ++i) {
-                                JsonObject model = modelsArray.get(i).getAsJsonObject();
-                                if (model.has("name")) {
-                                    models.add(model.get("name").getAsString());
-                                    continue;
-                                }
-                                if (!model.has("id")) continue;
-                                models.add(model.get("id").getAsString());
-                            }
+                OkHttpClient client = new OkHttpClient.Builder().connectTimeout(10, TimeUnit.SECONDS).build();
+                Request.Builder rb = new Request.Builder().url(modelsEndpointField.getText().trim()).get();
+                setupAuthHeader(rb, apiKeyField.getText().trim());
+                try (Response resp = client.newCall(rb.build()).execute()) {
+                    if (resp.isSuccessful()) {
+                        JsonObject json = JsonParser.parseString(resp.body().string()).getAsJsonObject();
+                        List<String> list = new ArrayList<>();
+                        if (json.has("data")) {
+                            JsonArray arr = json.getAsJsonArray("data");
+                            for (int i = 0; i < arr.size(); i++) list.add(arr.get(i).getAsJsonObject().get("id").getAsString());
                         }
-                        if (models.isEmpty()) {
-                            models.add("gpt-4");
-                            models.add("gpt-3.5-turbo");
-                            this.callbacks.printOutput("\u672a\u80fd\u89e3\u6790\u6a21\u578b\u5217\u8868\uff0c\u4f7f\u7528\u9ed8\u8ba4\u6a21\u578b");
-                        }
-                        ConfigManager.Config config = ConfigManager.getInstance().getConfig();
-                        config.setAvailableModels(models);
-                        if (!models.isEmpty()) {
-                            config.setSelectedAgent((String)models.get(0));
-                        }
-                        ConfigManager.getInstance().saveConfig();
-                        ArrayList<String> finalModels = models;
                         SwingUtilities.invokeLater(() -> {
-                            HashSet<String> existingModels = new HashSet<String>();
-                            for (int j = 0; j < this.agentComboBox.getItemCount(); ++j) {
-                                existingModels.add(this.agentComboBox.getItemAt(j));
-                            }
-                            int addedCount = 0;
-                            for (String model : finalModels) {
-                                if (existingModels.contains(model)) continue;
-                                this.agentComboBox.addItem(model);
-                                ++addedCount;
-                            }
-                            this.statusLabel.setText("\u72b6\u6001: \u83b7\u53d6\u5230 " + finalModels.size() + " \u4e2a\u6a21\u578b\uff0c\u65b0\u589e " + addedCount + " \u4e2a");
-                            this.statusLabel.setForeground(TEXT_GREEN);
-                            this.callbacks.printOutput("\u6210\u529f\u83b7\u53d6 " + finalModels.size() + " \u4e2a\u6a21\u578b\uff0c\u65b0\u589e " + addedCount + " \u4e2a");
-                            JOptionPane.showMessageDialog(this, "\u6210\u529f\u83b7\u53d6 " + finalModels.size() + " \u4e2a\u6a21\u578b\uff01\n\u65b0\u589e " + addedCount + " \u4e2a\u5230\u5217\u8868", "\u83b7\u53d6\u6210\u529f", 1);
-                        });
-                    } else {
-                        String errorBody = response.body() != null ? new String(response.body().bytes(), StandardCharsets.UTF_8) : "";
-                        this.callbacks.printError("\u83b7\u53d6\u6a21\u578b\u5217\u8868\u5931\u8d25: HTTP " + responseCode + " - " + errorBody);
-                        SwingUtilities.invokeLater(() -> {
-                            this.statusLabel.setText("\u72b6\u6001: \u83b7\u53d6\u5931\u8d25 \u2717 (HTTP " + responseCode + ")");
-                            this.statusLabel.setForeground(new Color(255, 0, 0));
-                            JOptionPane.showMessageDialog(this, "\u83b7\u53d6\u6a21\u578b\u5217\u8868\u5931\u8d25\uff01\nHTTP " + responseCode, "\u83b7\u53d6\u5931\u8d25", 0);
+                            agentComboBox.removeAllItems();
+                            for (String s : list) agentComboBox.addItem(s);
+                            statusLabel.setText("状态: 已获取 " + list.size() + " 个模型");
                         });
                     }
                 }
-            }
-            catch (Exception e) {
-                this.callbacks.printError("\u83b7\u53d6\u6a21\u578b\u5217\u8868\u5f02\u5e38: " + e.getMessage());
-                e.printStackTrace();
-                SwingUtilities.invokeLater(() -> {
-                    this.statusLabel.setText("\u72b6\u6001: \u83b7\u53d6\u5931\u8d25 \u2717");
-                    this.statusLabel.setForeground(new Color(255, 0, 0));
-                    JOptionPane.showMessageDialog(this, "\u83b7\u53d6\u5931\u8d25\uff1a" + e.getMessage(), "\u9519\u8bef", 0);
-                });
+            } catch (Exception e) {
+                SwingUtilities.invokeLater(() -> statusLabel.setText("状态: 获取模型失败"));
             }
         }).start();
     }
 
-    private void setupAuthHeader(Request.Builder requestBuilder, String endpoint, String apiKey) {
-        String lowerEndpoint = endpoint.toLowerCase();
-        if (lowerEndpoint.contains("anthropic.com")) {
-            requestBuilder.addHeader("x-api-key", apiKey);
-            requestBuilder.addHeader("anthropic-version", "2023-06-01");
-            return;
-        }
-        if (lowerEndpoint.contains("googleapis.com") || lowerEndpoint.contains("generativelanguage.googleapis.com")) {
-            requestBuilder.addHeader("Authorization", "Bearer " + apiKey);
-            return;
-        }
-        if (lowerEndpoint.contains("openai.azure.com")) {
-            requestBuilder.addHeader("api-key", apiKey);
-            return;
-        }
-        if (lowerEndpoint.contains("cohere.ai") || lowerEndpoint.contains("cohere.com")) {
-            requestBuilder.addHeader("Authorization", "Bearer " + apiKey);
-            requestBuilder.addHeader("Cohere-Version", "2022-12-06");
-            return;
-        }
-        if (lowerEndpoint.contains("mistral.ai")) {
-            requestBuilder.addHeader("Authorization", "Bearer " + apiKey);
-            return;
-        }
-        if (lowerEndpoint.contains("huggingface.co") || lowerEndpoint.contains("hf.co")) {
-            requestBuilder.addHeader("Authorization", "Bearer " + apiKey);
-            return;
-        }
-        if (lowerEndpoint.contains("replicate.com")) {
-            requestBuilder.addHeader("Authorization", "Token " + apiKey);
-            return;
-        }
-        if (lowerEndpoint.contains("together.xyz") || lowerEndpoint.contains("together.ai")) {
-            requestBuilder.addHeader("Authorization", "Bearer " + apiKey);
-            return;
-        }
-        if (lowerEndpoint.contains("perplexity.ai")) {
-            requestBuilder.addHeader("Authorization", "Bearer " + apiKey);
-            return;
-        }
-        if (lowerEndpoint.contains("deepseek.com")) {
-            requestBuilder.addHeader("Authorization", "Bearer " + apiKey);
-            return;
-        }
-        if (lowerEndpoint.contains("dashscope.aliyuncs.com")) {
-            requestBuilder.addHeader("Authorization", "Bearer " + apiKey);
-            return;
-        }
-        if (lowerEndpoint.contains("qianfan") || (lowerEndpoint.contains("baidu") && lowerEndpoint.contains("wenxin"))) {
-            requestBuilder.addHeader("Authorization", "Bearer " + apiKey);
-            return;
-        }
-        if (lowerEndpoint.contains("bigmodel.cn")) {
-            requestBuilder.addHeader("Authorization", "Bearer " + apiKey);
-            return;
-        }
-        if (lowerEndpoint.contains("xfyun.cn") || lowerEndpoint.contains("spark")) {
-            requestBuilder.addHeader("Authorization", "Bearer " + apiKey);
-            return;
-        }
-        if (lowerEndpoint.contains("volcengine.com") || lowerEndpoint.contains("doubao")) {
-            requestBuilder.addHeader("Authorization", "Bearer " + apiKey);
-            return;
-        }
-        if (lowerEndpoint.contains("hunyuan") || (lowerEndpoint.contains("tencent") && lowerEndpoint.contains("cloud"))) {
-            requestBuilder.addHeader("Authorization", "Bearer " + apiKey);
-            return;
-        }
-        if (lowerEndpoint.contains("moonshot.cn")) {
-            requestBuilder.addHeader("Authorization", "Bearer " + apiKey);
-            return;
-        }
-        if (lowerEndpoint.contains("baichuan-ai.com")) {
-            requestBuilder.addHeader("Authorization", "Bearer " + apiKey);
-            return;
-        }
-        if (lowerEndpoint.contains("minimax") || lowerEndpoint.contains("api.minimaxi.com")) {
-            requestBuilder.addHeader("Authorization", "Bearer " + apiKey);
-            return;
-        }
-        if (lowerEndpoint.contains("sensenova.cn") || lowerEndpoint.contains("sensetime")) {
-            requestBuilder.addHeader("Authorization", "Bearer " + apiKey);
-            return;
-        }
-        if (lowerEndpoint.contains("tiangong") || lowerEndpoint.contains("kunlun")) {
-            requestBuilder.addHeader("Authorization", "Bearer " + apiKey);
-            return;
-        }
-        if (lowerEndpoint.contains("01.ai") || lowerEndpoint.contains("lingyiwanwu")) {
-            requestBuilder.addHeader("Authorization", "Bearer " + apiKey);
-            return;
-        }
-        if (lowerEndpoint.contains("stepfun.com")) {
-            requestBuilder.addHeader("Authorization", "Bearer " + apiKey);
-            return;
-        }
-        if (lowerEndpoint.contains("modelbest.cn")) {
-            requestBuilder.addHeader("Authorization", "Bearer " + apiKey);
-            return;
-        }
-        requestBuilder.addHeader("Authorization", "Bearer " + apiKey);
+    private void setupAuthHeader(Request.Builder rb, String key) {
+        String type = ((String)authTypeComboBox.getSelectedItem()).toLowerCase();
+        if (type.equals("x-api-key")) rb.addHeader("x-api-key", key);
+        else if (type.equals("api-key")) rb.addHeader("api-key", key);
+        else rb.addHeader("Authorization", "Bearer " + key);
+        if (apiEndpointField.getText().contains("anthropic.com")) rb.addHeader("anthropic-version", "2023-06-01");
+    }
+
+    private JTextField createStyledTextField() {
+        JTextField f = new JTextField();
+        f.setPreferredSize(new Dimension(0, 38));
+        f.setBorder(BorderFactory.createCompoundBorder(BorderFactory.createLineBorder(BORDER_COLOR), BorderFactory.createEmptyBorder(0, 10, 0, 10)));
+        f.setFont(new Font("Consolas", Font.PLAIN, 14));
+        return f;
+    }
+
+    private javax.swing.JTextArea createStyledTextArea() {
+        javax.swing.JTextArea a = new javax.swing.JTextArea(6, 0);
+        a.setLineWrap(true);
+        a.setWrapStyleWord(true);
+        a.setFont(new Font("Consolas", Font.PLAIN, 13));
+        a.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+        return a;
+    }
+
+    private JComboBox<AIProvider> createProviderComboBox() {
+        JComboBox<AIProvider> cb = new JComboBox<>();
+        cb.setBackground(BG_WHITE);
+        cb.setFont(new Font("微软雅黑", Font.PLAIN, 13));
+        for (AIProvider p : ConfigManager.getInstance().getConfig().getAllProviders()) cb.addItem(p);
+        cb.addItem(new AIProvider(ADD_NEW_PROVIDER, "", "", "bearer", true));
+        return cb;
+    }
+
+    private JButton createStyledButton(String text, boolean primary) {
+        JButton b = new JButton(text);
+        b.setPreferredSize(new Dimension(120, 40));
+        b.setFocusPainted(false);
+        b.setFont(new Font("微软雅黑", Font.BOLD, 14));
+        b.setCursor(new Cursor(Cursor.HAND_CURSOR));
+        b.setBackground(primary ? ACCENT_GREEN : PANEL_LIGHT);
+        b.setForeground(primary ? Color.WHITE : TEXT_DARK);
+        b.setBorder(BorderFactory.createLineBorder(primary ? ACCENT_GREEN : BORDER_COLOR));
+        return b;
+    }
+
+    private JButton createSmallButton(String text) {
+        JButton b = new JButton(text);
+        b.setFocusPainted(false);
+        b.setFont(new Font("微软雅黑", Font.PLAIN, 12));
+        b.setBackground(PANEL_LIGHT);
+        b.setBorder(BorderFactory.createCompoundBorder(BorderFactory.createLineBorder(BORDER_COLOR), BorderFactory.createEmptyBorder(3, 8, 3, 8)));
+        return b;
     }
 }

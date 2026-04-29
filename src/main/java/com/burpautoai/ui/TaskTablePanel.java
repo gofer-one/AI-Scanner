@@ -120,6 +120,16 @@ public class TaskTablePanel extends JPanel {
                     showSelectedTaskReport();
                 }
             }
+            
+            @Override
+            public void mousePressed(MouseEvent e) {
+                if (SwingUtilities.isRightMouseButton(e)) {
+                    int row = taskTable.rowAtPoint(e.getPoint());
+                    if (row >= 0 && row < taskTable.getRowCount()) {
+                        taskTable.setRowSelectionInterval(row, row);
+                    }
+                }
+            }
         });
 
         JPopupMenu popupMenu = new JPopupMenu();
@@ -131,6 +141,27 @@ public class TaskTablePanel extends JPanel {
         viewReportItem.addActionListener(e -> showSelectedTaskReport());
         popupMenu.add(viewReportItem);
         popupMenu.addSeparator();
+
+        JMenuItem stopItem = createMenuItem("停止分析");
+        stopItem.addActionListener(e -> stopSelectedTask());
+        popupMenu.add(stopItem);
+
+        // 使用监听器在菜单弹出瞬间实时更新状态
+        popupMenu.addPopupMenuListener(new javax.swing.event.PopupMenuListener() {
+            @Override
+            public void popupMenuWillBecomeVisible(javax.swing.event.PopupMenuEvent e) {
+                int selectedRow = taskTable.getSelectedRow();
+                if (selectedRow >= 0) {
+                    int taskId = (Integer)tableModel.getValueAt(selectedRow, 0);
+                    ScanTask task = findTaskById(taskId);
+                    stopItem.setVisible(task != null && task.getStatus() == ScanTask.TaskStatus.SCANNING);
+                } else {
+                    stopItem.setVisible(false);
+                }
+            }
+            @Override public void popupMenuWillBecomeInvisible(javax.swing.event.PopupMenuEvent e) {}
+            @Override public void popupMenuCanceled(javax.swing.event.PopupMenuEvent e) {}
+        });
 
         JMenuItem rescanItem = createMenuItem("\u91cd\u65b0\u626b\u63cf");
         rescanItem.addActionListener(e -> rescanSelectedTask());
@@ -214,6 +245,18 @@ public class TaskTablePanel extends JPanel {
         }
     }
 
+    private void stopSelectedTask() {
+        int selectedRow = this.taskTable.getSelectedRow();
+        if (selectedRow >= 0) {
+            int taskId = (Integer)this.tableModel.getValueAt(selectedRow, 0);
+            ScanTask task = findTaskById(taskId);
+            if (task != null && task.getStatus() == ScanTask.TaskStatus.SCANNING) {
+                task.setStopped(true);
+                this.logPanel.logInfo("用户请求停止任务 #" + taskId);
+            }
+        }
+    }
+
     private void showSelectedTaskReport() {
         int selectedRow = this.taskTable.getSelectedRow();
         if (selectedRow >= 0) {
@@ -226,9 +269,12 @@ public class TaskTablePanel extends JPanel {
     }
 
     private void showReportDialog(ScanTask task) {
-        Frame owner = (Frame)SwingUtilities.getWindowAncestor(this);
-        javax.swing.JDialog dialog = new javax.swing.JDialog(owner, "\u4efb\u52a1 #" + task.getId() + " - AI \u5ba1\u8ba1\u62a5\u544a", false);
+        // 将 owner 设置为 null，使其成为一个独立的窗口，不再强制悬浮在 Burp 主界面上方
+        javax.swing.JDialog dialog = new javax.swing.JDialog((java.awt.Window)null, "\u4efb\u52a1 #" + task.getId() + " - AI \u5ba1\u8ba1\u62a5\u544a", java.awt.Dialog.ModalityType.MODELESS);
         dialog.setLayout(new BorderLayout());
+        
+        // 显式确保它不是“始终置顶”
+        dialog.setAlwaysOnTop(false);
         
         javax.swing.JEditorPane reportPane = new javax.swing.JEditorPane();
         reportPane.setEditable(false);
@@ -290,13 +336,24 @@ public class TaskTablePanel extends JPanel {
         dialog.add(bp, "South");
 
         dialog.setSize(850, 700);
-        dialog.setLocationRelativeTo(owner);
+        // 获取主窗口以进行居中定位，但不建立父子级强制悬浮关系
+        Frame mainFrame = (Frame)SwingUtilities.getWindowAncestor(this);
+        dialog.setLocationRelativeTo(mainFrame);
         dialog.setVisible(true);
     }
 
     private String markdownToHtml(String md) {
         if (md == null) return "";
-        String html = md
+        
+        // 预处理：
+        // 1. 处理紧密连字符 (AAAAA...)
+        String processedMd = md.replaceAll("(.)\\1{50,}", "$1... [重复字符已截断]");
+        // 2. 处理带空格的重复模式 (📐 📐 📐 ...)
+        processedMd = processedMd.replaceAll("(📐\\s*){10,}", "📐 [多余三角形已过滤]");
+        // 3. 处理其他可能的重复词组
+        processedMd = processedMd.replaceAll("(.{1,10})\\1{20,}", "$1... [重复模式已截断]");
+
+        String html = processedMd
             .replace("&", "&amp;")
             .replace("<", "&lt;")
             .replace(">", "&gt;")
@@ -307,16 +364,20 @@ public class TaskTablePanel extends JPanel {
             .replaceAll("(?m)^-(.*)$", "<li>$1</li>")
             .replace("\n", "<br>");
         
-        // 处理代码块 (简单模拟)
+        // 处理代码块
         if (html.contains("```")) {
-            html = html.replaceAll("```(.*?)```", "<pre style='background-color:#f4f4f4; padding:10px; border:1px solid #ccc; font-family:Consolas,monospace;'>$1</pre>");
+            // 使用非贪婪匹配，并增加长度限制，防止正则回溯导致的卡顿
+            html = html.replaceAll("(?s)```(.*?)```", "<pre style='background-color:#f4f4f4; padding:10px; border:1px solid #ccc; font-family:Consolas,monospace;'>$1</pre>");
         }
         return html;
     }
 
     private String getTaskDetailSummary(ScanTask task) {
         if (task.getStatus() != ScanTask.TaskStatus.FINISHED) return "-";
-        return "\u5206\u6790\u5df2\u5b8c\u6210";
+        if (task.getErrorMessage() != null && !task.getErrorMessage().isEmpty()) {
+            return "AI分析错误";
+        }
+        return "分析完成";
     }
 
     private void deleteSelectedTask() {

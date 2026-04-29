@@ -71,6 +71,28 @@ IContextMenuFactory {
                 this.callbacks.printOutput("已成功发送 " + messages.length + " 个请求到 AI-Scanner 面板");
             });
             menuItems.add(aiScanItem);
+
+            // Add custom prompts sub-menu
+            List<com.burpautoai.model.CustomPrompt> customPrompts = ConfigManager.getInstance().getConfig().getCustomPrompts();
+            if (customPrompts != null && !customPrompts.isEmpty()) {
+                JMenu customMenu = new JMenu("发送到 AI-Scanner (自定义)");
+                customMenu.setFont(new Font("微软雅黑", 0, 12));
+                for (com.burpautoai.model.CustomPrompt prompt : customPrompts) {
+                    JMenuItem customItem = new JMenuItem(prompt.getName());
+                    customItem.setFont(new Font("微软雅黑", 0, 12));
+                    customItem.addActionListener(e -> {
+                        for (IHttpRequestResponse message : messages) {
+                            if (this.mainPanel == null) {
+                                continue;
+                            }
+                            this.mainPanel.addRequest(message, ScanTask.ScanMode.CUSTOM, prompt.getPrompt());
+                        }
+                        this.callbacks.printOutput("已成功使用自定义提示词 \"" + prompt.getName() + "\" 发送 " + messages.length + " 个请求到 AI-Scanner 面板");
+                    });
+                    customMenu.add(customItem);
+                }
+                menuItems.add(customMenu);
+            }
         }
         return menuItems;
     }

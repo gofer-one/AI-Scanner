@@ -2,6 +2,7 @@ package com.burpautoai.core;
 
 import burp.IBurpExtenderCallbacks;
 import com.burpautoai.model.AIProvider;
+import com.burpautoai.model.CustomPrompt;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import java.io.File;
@@ -9,7 +10,6 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.OpenOption;
 import java.nio.file.Paths;
-import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -82,8 +82,11 @@ public class ConfigManager {
         private String modelsEndpoint = "https://api.openai.com/v1/models";
         private String selectedProvider = "OpenAI";
         private String selectedAgent = "";
+        private String authType = "bearer";
+        private int maxTokens = 8192;
         private List<AIProvider> customProviders = new ArrayList<AIProvider>();
         private List<String> availableModels = new ArrayList<String>();
+        private List<CustomPrompt> customPrompts = new ArrayList<CustomPrompt>();
         private String prompt = "";
 
         public String getApiKey() {
@@ -126,6 +129,22 @@ public class ConfigManager {
             this.selectedAgent = selectedAgent;
         }
 
+        public String getAuthType() {
+            return this.authType != null ? this.authType : "bearer";
+        }
+
+        public void setAuthType(String authType) {
+            this.authType = authType;
+        }
+
+        public int getMaxTokens() {
+            return this.maxTokens > 0 ? this.maxTokens : 8192;
+        }
+
+        public void setMaxTokens(int maxTokens) {
+            this.maxTokens = maxTokens;
+        }
+
         public List<AIProvider> getCustomProviders() {
             return this.customProviders;
         }
@@ -140,6 +159,17 @@ public class ConfigManager {
 
         public void setAvailableModels(List<String> availableModels) {
             this.availableModels = availableModels;
+        }
+
+        public List<CustomPrompt> getCustomPrompts() {
+            if (this.customPrompts == null) {
+                this.customPrompts = new ArrayList<CustomPrompt>();
+            }
+            return this.customPrompts;
+        }
+
+        public void setCustomPrompts(List<CustomPrompt> customPrompts) {
+            this.customPrompts = customPrompts;
         }
 
         public List<AIProvider> getAllProviders() {

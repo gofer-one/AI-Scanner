@@ -90,12 +90,30 @@ implements ITab {
         titleLabel.setFont(new Font("\u5fae\u8f6f\u96c5\u9ed1", 1, 16));
         panel.add((Component)titleLabel, "West");
 
-        JButton configButton = new JButton("\u914d\u7f6e\u4e2d\u5fc3");
+        JPanel buttonContainer = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 0));
+        buttonContainer.setBackground(BG_BLACK);
+
+        JButton promptButton = new JButton("提示词管理");
+        promptButton.setBackground(PANEL_DARK);
+        promptButton.setForeground(TEXT_GREEN);
+        promptButton.setBorder(BorderFactory.createLineBorder(BORDER_GREEN, 1));
+        promptButton.setFocusPainted(false);
+        promptButton.setFont(new Font("微软雅黑", 1, 13));
+        promptButton.setCursor(new Cursor(12));
+        promptButton.setPreferredSize(new Dimension(100, 30));
+        promptButton.addActionListener(e -> {
+            Frame parentFrame = (Frame)SwingUtilities.getWindowAncestor(this);
+            PromptManagerDialog dialog = new PromptManagerDialog(parentFrame);
+            dialog.setVisible(true);
+        });
+        buttonContainer.add(promptButton);
+
+        JButton configButton = new JButton("配置中心");
         configButton.setBackground(PANEL_DARK);
         configButton.setForeground(TEXT_GREEN);
         configButton.setBorder(BorderFactory.createLineBorder(BORDER_GREEN, 1));
         configButton.setFocusPainted(false);
-        configButton.setFont(new Font("\u5fae\u8f6f\u96c5\u9ed1", 1, 13));
+        configButton.setFont(new Font("微软雅黑", 1, 13));
         configButton.setCursor(new Cursor(12));
         configButton.setPreferredSize(new Dimension(80, 30));
         configButton.addActionListener(e -> {
@@ -103,7 +121,9 @@ implements ITab {
             ConfigDialog dialog = new ConfigDialog(parentFrame, this.callbacks, this.helpers);
             dialog.setVisible(true);
         });
-        panel.add((Component)configButton, "East");
+        buttonContainer.add(configButton);
+
+        panel.add((Component)buttonContainer, "East");
         return panel;
     }
 
@@ -116,6 +136,10 @@ implements ITab {
     }
 
     public void addRequest(IHttpRequestResponse request, ScanTask.ScanMode scanMode) {
+        this.addRequest(request, scanMode, null);
+    }
+
+    public void addRequest(IHttpRequestResponse request, ScanTask.ScanMode scanMode, String customPrompt) {
         try {
             if (request == null || request.getRequest() == null || request.getHttpService() == null) {
                 this.callbacks.printError("无效的请求：请求或请求内容为空");
@@ -136,8 +160,11 @@ implements ITab {
             String method = firstLine.length > 0 ? firstLine[0] : "UNKNOWN";
             String url = request.getHttpService().getProtocol() + "://" + request.getHttpService().getHost() + (firstLine.length > 1 ? firstLine[1] : "");
             ScanTask task = new ScanTask(this.taskIdCounter++, request, method, url, scanMode);
+            if (customPrompt != null) {
+                task.setCustomPrompt(customPrompt);
+            }
             this.tasks.add(task);
-            this.logPanel.logInfo("[新增] 任务 #" + task.getId() + " | 模式: " + task.getScanMode().getDisplayName());
+            this.logPanel.logInfo("[新增] 任务 #" + task.getId() + " | 模式: " + task.getScanMode().getDisplayName() + (customPrompt != null ? " (自定义提示词)" : ""));
             SwingUtilities.invokeLater(() -> {
                 this.taskTablePanel.addTask(task);
                 this.updateStats();
@@ -170,6 +197,7 @@ implements ITab {
     public void rescanTask(ScanTask task) {
         task.setStatus(ScanTask.TaskStatus.PENDING);
         task.setAiAnalysis("");
+        task.setStopped(false);
         this.logPanel.logInfo("\u91cd\u65b0\u626b\u63cf\u4efb\u52a1 #" + task.getId());
         this.taskTablePanel.refreshTask(task);
         this.updateStats();
@@ -187,19 +215,27 @@ implements ITab {
 
     private void updateStats() {
         int total = this.tasks.size();
-        int completed = 0;
         int scanning = 0;
+        int success = 0;
+        int failure = 0;
         
         for (ScanTask task : this.tasks) {
-            if (task.getStatus() == ScanTask.TaskStatus.FINISHED) {
-                ++completed;
-            }
             if (task.getStatus() == ScanTask.TaskStatus.SCANNING) {
-                ++scanning;
+                scanning++;
+            } else if (task.getStatus() == ScanTask.TaskStatus.FINISHED) {
+                // 判定 AI 成功逻辑：无错误消息且有分析内容
+                if (task.getErrorMessage() != null && !task.getErrorMessage().isEmpty()) {
+                    failure++;
+                } else if (task.getAiAnalysis() != null && !task.getAiAnalysis().isEmpty()) {
+                    success++;
+                } else {
+                    // 已完成但既没报错也没内容，视为失败
+                    failure++;
+                }
             }
         }
         
-        this.logPanel.updateStats(total, completed, scanning);
+        this.logPanel.updateStats(total, success, failure, scanning);
     }
 
     public void showTaskDetail(ScanTask task) {
