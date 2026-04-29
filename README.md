@@ -17,12 +17,14 @@
 ## 🎥 Demo
 
 > * 配置界面截图
-<img width="1600" height="1574" alt="image" src="https://github.com/user-attachments/assets/a804d5ff-c243-46e4-a2f4-435dde94c99a" />
+<img width="1664" height="1508" alt="image" src="https://github.com/user-attachments/assets/0d33c03e-d89b-4f9d-8808-ed00509c7620" />
+
 
 
 
 > * 扫描界面截图
-<img width="2690" height="1096" alt="image" src="https://github.com/user-attachments/assets/f70b65eb-bfad-4044-b02d-ab4c495e21b8" />
+<img width="1700" height="1400" alt="image" src="https://github.com/user-attachments/assets/03102aba-36ae-4aae-a98d-e14018765823" />
+
 
 ---
 
@@ -121,11 +123,7 @@ target/*-jar-with-dependencies.jar
 
 ## 📊 扫描结果示例
 
-* 风险等级标记
-* AI 分析说明
-* 请求/响应对比
-* Payload 详情
-<img width="1700" height="1400" alt="image" src="https://github.com/user-attachments/assets/b7bebe13-eb56-42d7-a4ea-057d07041004" />
+<img width="2702" height="1330" alt="image" src="https://github.com/user-attachments/assets/1a36071a-c8b6-40cf-bdcc-f11b940ab39c" />
 
 
 
