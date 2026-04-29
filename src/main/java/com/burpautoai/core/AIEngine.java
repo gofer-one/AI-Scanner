@@ -28,7 +28,11 @@ public class AIEngine {
     private final LogPanel logPanel;
     private final OkHttpClient httpClient;
     private final Gson gson;
+
     private static final MediaType JSON_TYPE = MediaType.parse("application/json; charset=utf-8");
+    private static final int MAX_RESPONSE_CHARS = 80000;
+    private static final int MAX_BODY_TRUNCATE = 10000;
+    private static final int DEFAULT_MAX_TOKENS = 8192;
 
     public AIEngine(IBurpExtenderCallbacks callbacks, IExtensionHelpers helpers, LogPanel logPanel) {
         this.callbacks = callbacks;
@@ -65,188 +69,141 @@ public class AIEngine {
 
     private void executeStreamRequest(ScanTask task, String requestInfo, StreamingCallback callback) throws IOException {
         ConfigManager.Config config = ConfigManager.getInstance().getConfig();
-        String prompt = task.getCustomPrompt();
-        if (prompt == null || prompt.isEmpty()) {
-            prompt = config.getPrompt();
-        }
-        if (prompt == null || prompt.isEmpty()) {
-            prompt = "Analyze the safety of this request.";
-        }
+        String prompt = (task.getCustomPrompt() != null && !task.getCustomPrompt().isEmpty()) 
+                        ? task.getCustomPrompt() : config.getPrompt();
+        
+        if (prompt == null || prompt.isEmpty()) prompt = "Analyze the safety of this request.";
         
         JsonObject requestBody = new JsonObject();
         requestBody.addProperty("model", config.getSelectedAgent());
         requestBody.addProperty("stream", true); 
-        
-        JsonArray messages = new JsonArray();
-        JsonObject sMsg = new JsonObject();
-        sMsg.addProperty("role", "system");
-        sMsg.addProperty("content", prompt);
-        messages.add(sMsg);
-        
-        JsonObject uMsg = new JsonObject();
-        uMsg.addProperty("role", "user");
-        uMsg.addProperty("content", requestInfo);
-        messages.add(uMsg);
-        
-        requestBody.add("messages", messages);
         requestBody.addProperty("temperature", 0.0);
-        // 从配置中动态读取最大输出 Token 限制
-        requestBody.addProperty("max_tokens", config.getMaxTokens()); 
+        requestBody.addProperty("max_tokens", config.getMaxTokens() > 0 ? config.getMaxTokens() : DEFAULT_MAX_TOKENS); 
+
+        JsonArray messages = new JsonArray();
+        messages.add(createMsg("system", prompt));
+        messages.add(createMsg("user", requestInfo));
+        requestBody.add("messages", messages);
 
         String jsonRequest = this.gson.toJson(requestBody);
         this.logPanel.logRequest(jsonRequest);
         
-        RequestBody body = RequestBody.create(JSON_TYPE, jsonRequest);
-        Request.Builder requestBuilder = new Request.Builder()
-                .url(config.getApiEndpoint())
-                .post(body);
-        
-        String authType = config.getAuthType().toLowerCase();
-        String apiKey = config.getApiKey();
-        if (authType.equals("x-api-key")) {
-            requestBuilder.addHeader("x-api-key", apiKey);
-        } else if (authType.equals("api-key")) {
-            requestBuilder.addHeader("api-key", apiKey);
-        } else {
-            requestBuilder.addHeader("Authorization", "Bearer " + apiKey);
-        }
-        if (config.getApiEndpoint().toLowerCase().contains("anthropic.com")) {
-            requestBuilder.addHeader("anthropic-version", "2023-06-01");
-        }
+        Request.Builder rb = new Request.Builder().url(config.getApiEndpoint()).post(RequestBody.create(JSON_TYPE, jsonRequest));
+        applyAuthHeaders(rb, config);
 
         StringBuilder fullContent = new StringBuilder();
-        int maxChars = 80000; // 进一步放宽字符限制
-        
-        try (Response response = this.httpClient.newCall(requestBuilder.build()).execute()) {
+        try (Response response = this.httpClient.newCall(rb.build()).execute()) {
             if (!response.isSuccessful()) {
-                String errorInfo = "HTTP " + response.code();
-                task.setErrorMessage(errorInfo);
+                task.setErrorMessage(handleHttpError(response.code()));
                 return;
             }
             
             okio.BufferedSource source = response.body().source();
-            while (!source.exhausted()) {
-                if (task.isStopped()) break;
-
-                if (fullContent.length() > maxChars) {
-                    fullContent.append("\n\n[系统提示: 内容达到插件保护上限，已停止接收]");
+            while (!source.exhausted() && !task.isStopped()) {
+                if (fullContent.length() > MAX_RESPONSE_CHARS) {
+                    fullContent.append("\n\n[系统提示: 内容达到安全上限已截断]");
                     break;
                 }
                 
                 String line = source.readUtf8Line();
                 if (line == null) break;
+                if (!line.startsWith("data: ")) continue;
                 
-                if (line.startsWith("data: ")) {
-                    String data = line.substring(6).trim();
-                    if (data.equals("[DONE]")) {
-                        this.logPanel.logSuccess("[任务 #" + task.getId() + "] AI 分析流正常结束。");
-                        break;
-                    }
-                    
-                    try {
-                        JsonObject streamJson = JsonParser.parseString(data).getAsJsonObject();
-                        JsonArray choices = streamJson.getAsJsonArray("choices");
-                        if (choices != null && choices.size() > 0) {
-                            JsonObject choice = choices.get(0).getAsJsonObject();
-                            
-                            // 检查停止原因
-                            if (choice.has("finish_reason") && !choice.get("finish_reason").isJsonNull()) {
-                                String reason = choice.get("finish_reason").getAsString();
-                                if ("length".equals(reason)) {
-                                    this.logPanel.logWarning("[任务 #" + task.getId() + "] 警告: AI 输出达到模型最大长度限制，分析可能不完整。");
-                                }
-                            }
-
-                            JsonObject delta = choice.getAsJsonObject("delta");
-                            if (delta != null && delta.has("content")) {
-                                String chunk = delta.get("content").getAsString();
-                                // 只进行最基础的控制符过滤，不进行业务逻辑熔断，确保内容完整
-                                if (chunk.contains("<|im_") || chunk.contains("📐")) {
-                                    // 如果确实出现了超过 100 个三角形，那才是真的崩溃
-                                    if (fullContent.length() > 0 && chunk.equals(fullContent.substring(fullContent.length()-1))) {
-                                        // 连续重复字符检测可以在 UI 渲染层做，这里保命即可
-                                    }
-                                }
-                                fullContent.append(chunk);
-                                task.setAiAnalysis(fullContent.toString());
-                                if (callback != null) callback.onChunk(chunk);
-                            }
-                        }
-                    } catch (Exception e) {}
-                }
+                String data = line.substring(6).trim();
+                if (data.equals("[DONE]")) break;
+                
+                parseStreamData(data, fullContent, task, callback);
             }
         }
     }
 
+    private JsonObject createMsg(String role, String content) {
+        JsonObject m = new JsonObject();
+        m.addProperty("role", role);
+        m.addProperty("content", content);
+        return m;
+    }
+
+    private void applyAuthHeaders(Request.Builder rb, ConfigManager.Config config) {
+        String authType = config.getAuthType().toLowerCase();
+        String key = config.getApiKey();
+        if (authType.equals("x-api-key")) rb.addHeader("x-api-key", key);
+        else if (authType.equals("api-key")) rb.addHeader("api-key", key);
+        else rb.addHeader("Authorization", "Bearer " + key);
+        
+        if (config.getApiEndpoint().contains("anthropic.com")) rb.addHeader("anthropic-version", "2023-06-01");
+    }
+
+    private String handleHttpError(int code) {
+        if (code == 401) return "API Key 鉴权失败 (401)";
+        if (code == 404) return "端点路径错误 (404)";
+        if (code == 429) return "额度耗尽或限频 (429)";
+        return "HTTP Error " + code;
+    }
+
+    private void parseStreamData(String data, StringBuilder full, ScanTask task, StreamingCallback cb) {
+        try {
+            JsonObject json = JsonParser.parseString(data).getAsJsonObject();
+            JsonArray choices = json.getAsJsonArray("choices");
+            if (choices != null && choices.size() > 0) {
+                JsonObject choice = choices.get(0).getAsJsonObject();
+                if (choice.has("finish_reason") && "length".equals(choice.get("finish_reason").getAsString())) {
+                    this.logPanel.logWarning("AI 输出由于长度限制被截断");
+                }
+                JsonObject delta = choice.getAsJsonObject("delta");
+                if (delta != null && delta.has("content")) {
+                    String chunk = delta.get("content").getAsString();
+                    full.append(chunk);
+                    task.setAiAnalysis(full.toString());
+                    if (cb != null) cb.onChunk(chunk);
+                }
+            }
+        } catch (Exception e) {}
+    }
+
     private String buildRequestInfo(IHttpRequestResponse message) {
         StringBuilder info = new StringBuilder();
-        info.append("=== HTTP REQUEST ===\n");
-        info.append(this.simplifyRequest(message));
-        byte[] responseBytes = message.getResponse();
-        if (responseBytes != null && responseBytes.length > 0) {
-            info.append("\n\n=== HTTP RESPONSE ===\n");
-            info.append(this.simplifyResponse(message));
-        } else {
-            info.append("\n\n=== HTTP RESPONSE ===\n(No response data available)");
+        info.append("=== HTTP REQUEST ===\n").append(this.simplifyRequest(message));
+        if (message.getResponse() != null) {
+            info.append("\n\n=== HTTP RESPONSE ===\n").append(this.simplifyResponse(message));
         }
         return info.toString();
     }
 
     private String simplifyRequest(IHttpRequestResponse message) {
-        byte[] requestBytes = message.getRequest();
-        if (requestBytes == null || requestBytes.length == 0) return "(Empty Request)";
         IRequestInfo reqInfo = this.helpers.analyzeRequest(message);
-        List<String> headers = reqInfo.getHeaders();
         int bodyOffset = reqInfo.getBodyOffset();
-        String body = new String(Arrays.copyOfRange(requestBytes, bodyOffset, requestBytes.length), StandardCharsets.UTF_8);
-        String contentType = "";
-        for (String h : headers) { if (h.toLowerCase().startsWith("content-type:")) { contentType = h.toLowerCase(); break; } }
+        byte[] reqBytes = message.getRequest();
+        String body = new String(Arrays.copyOfRange(reqBytes, bodyOffset, reqBytes.length), StandardCharsets.UTF_8);
         
-        // 适当放宽 Body 保留长度，给 AI 更多上下文
-        if (contentType.contains("multipart/form-data")) {
-            body = body.replaceAll("(?s)(\r\n\r\n).*?(\r\n--)", "$1(Binary data omitted)$2");
-        } else if (body.length() > 10000) {
-            body = body.substring(0, 10000) + "\n...(Request body truncated)";
-        }
+        if (body.length() > MAX_BODY_TRUNCATE) body = body.substring(0, MAX_BODY_TRUNCATE) + "\n...(Truncated)";
         
         StringBuilder sb = new StringBuilder();
-        for (String h : headers) {
+        for (String h : reqInfo.getHeaders()) {
             String lh = h.toLowerCase();
-            if (lh.startsWith("accept:") || lh.startsWith("user-agent:") || lh.startsWith("connection:") || lh.startsWith("sec-ch-ua")) continue;
+            if (lh.startsWith("accept:") || lh.startsWith("user-agent:") || lh.startsWith("sec-ch-ua")) continue;
             sb.append(h).append("\n");
         }
-        sb.append("\n").append(body);
-        return sb.toString();
+        return sb.append("\n").append(body).toString();
     }
 
     private String simplifyResponse(IHttpRequestResponse message) {
-        byte[] responseBytes = message.getResponse();
-        if (responseBytes == null || responseBytes.length == 0) return "(No Response)";
-        IResponseInfo responseInfo = this.helpers.analyzeResponse(responseBytes);
-        List<String> headers = responseInfo.getHeaders();
-        int bodyOffset = responseInfo.getBodyOffset();
-        String body = new String(Arrays.copyOfRange(responseBytes, bodyOffset, responseBytes.length), StandardCharsets.UTF_8);
-        String contentType = "";
-        for (String h : headers) { if (h.toLowerCase().startsWith("content-type:")) { contentType = h.toLowerCase(); break; } }
-        
-        if (contentType.contains("image/") || contentType.contains("font/") || contentType.contains("video/") || contentType.contains("audio/") || contentType.contains("application/zip") || contentType.contains("application/pdf")) {
-            return String.join("\n", headers) + "\n\n(Binary content omitted)";
-        }
+        IResponseInfo respInfo = this.helpers.analyzeResponse(message.getResponse());
+        byte[] respBytes = message.getResponse();
+        String body = new String(Arrays.copyOfRange(respBytes, respInfo.getBodyOffset(), respBytes.length), StandardCharsets.UTF_8);
         
         body = body.replaceAll("data:[^;]+;base64,[A-Za-z0-9+/=]{100,}", "data:(Base64 Truncated)");
         body = body.replaceAll("(?is)<style.*?>.*?</style>", "<style>(CSS Omitted)</style>");
         body = body.replaceAll("(?is)<svg.*?>.*?</svg>", "<svg>(SVG Omitted)</svg>");
         
-        // 适当放宽 Response 保留长度
-        if (body.length() > 15000) body = body.substring(0, 15000) + "\n...(Response body truncated)";
+        if (body.length() > 15000) body = body.substring(0, 15000) + "\n...(Truncated)";
         
         StringBuilder sb = new StringBuilder();
-        for (String h : headers) {
+        for (String h : respInfo.getHeaders()) {
             String lh = h.toLowerCase();
             if (lh.startsWith("server:") || lh.startsWith("date:") || lh.startsWith("content-length:")) continue;
             sb.append(h).append("\n");
         }
-        sb.append("\n").append(body);
-        return sb.toString();
+        return sb.append("\n").append(body).toString();
     }
 }
