@@ -349,7 +349,7 @@ public class TaskTablePanel extends JPanel {
         // 1. 处理紧密连字符 (AAAAA...)
         String processedMd = md.replaceAll("(.)\\1{50,}", "$1... [重复字符已截断]");
         // 2. 处理带空格的重复模式 (📐 📐 📐 ...)
-        processedMd = processedMd.replaceAll("(📐\\s*){10,}", "📐 [多余三角形已过滤]");
+        processedMd = processedMd.replaceAll("(📐\\s*){2,}", "📐 [多余三角形已过滤]");
         // 3. 处理其他可能的重复词组
         processedMd = processedMd.replaceAll("(.{1,10})\\1{20,}", "$1... [重复模式已截断]");
 

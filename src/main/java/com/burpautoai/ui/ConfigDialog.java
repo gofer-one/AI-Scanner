@@ -185,9 +185,16 @@ public class ConfigDialog extends JDialog {
         p.add(c, gbc);
     }
 
+    private String currentProviderName = "";
+
     private void onProviderChanged() {
         AIProvider s = (AIProvider)providerComboBox.getSelectedItem();
         if (s == null) return;
+        
+        // If the provider name hasn't changed, don't reset the fields or models
+        if (s.getName().equals(currentProviderName)) return;
+        currentProviderName = s.getName();
+
         if (s.getName().equals(ADD_NEW_PROVIDER)) {
             apiKeyField.setText(""); apiEndpointField.setText(""); modelsEndpointField.setText(""); 
             maxTokensField.setText("8192"); authTypeComboBox.setSelectedIndex(0);
@@ -195,10 +202,24 @@ public class ConfigDialog extends JDialog {
             quickSaveButton.setVisible(true); statusLabel.setText("状态: 请填写新的 API 配置");
         } else {
             ConfigManager.Config c = ConfigManager.getInstance().getConfig();
-            apiKeyField.setText(c.getApiKey()); apiEndpointField.setText(s.getApiEndpoint());
+            apiKeyField.setText(c.getApiKey()); 
+            apiEndpointField.setText(s.getApiEndpoint());
             modelsEndpointField.setText(s.getModelsEndpoint());
             maxTokensField.setText(String.valueOf(c.getMaxTokens()));
             authTypeComboBox.setSelectedItem(s.getAuthType().toLowerCase());
+            
+            // Load this provider's specific models
+            agentComboBox.removeAllItems();
+            if (s.getAvailableModels() != null && !s.getAvailableModels().isEmpty()) {
+                for (String m : s.getAvailableModels()) agentComboBox.addItem(m);
+                agentComboBox.setSelectedItem(s.getSelectedAgent());
+                if (agentComboBox.getSelectedItem() == null && agentComboBox.getItemCount() > 0) {
+                    agentComboBox.setSelectedIndex(0);
+                }
+            } else {
+                agentComboBox.addItem("请获取模型列表");
+            }
+            
             quickSaveButton.setVisible(false); statusLabel.setText("状态: 已加载 " + s.getName());
         }
     }
@@ -206,39 +227,83 @@ public class ConfigDialog extends JDialog {
     private void loadConfig() {
         ConfigManager.Config c = ConfigManager.getInstance().getConfig();
         isUpdatingProvider = true;
-        apiKeyField.setText(c.getApiKey()); promptArea.setText(c.getPrompt());
-        apiEndpointField.setText(c.getApiEndpoint()); modelsEndpointField.setText(c.getModelsEndpoint());
-        maxTokensField.setText(String.valueOf(c.getMaxTokens()));
-        authTypeComboBox.setSelectedItem(c.getAuthType().toLowerCase());
-        reloadProviders();
-        for (int i = 0; i < providerComboBox.getItemCount(); i++) {
-            if (providerComboBox.getItemAt(i).getName().equals(c.getSelectedProvider())) {
-                providerComboBox.setSelectedIndex(i); break;
+        try {
+            apiKeyField.setText(c.getApiKey()); promptArea.setText(c.getPrompt());
+            apiEndpointField.setText(c.getApiEndpoint()); modelsEndpointField.setText(c.getModelsEndpoint());
+            maxTokensField.setText(String.valueOf(c.getMaxTokens()));
+            authTypeComboBox.setSelectedItem(c.getAuthType().toLowerCase());
+            reloadProviders();
+            
+            // Find and select the correct provider
+            currentProviderName = c.getSelectedProvider();
+            AIProvider selectedP = null;
+            for (int i = 0; i < providerComboBox.getItemCount(); i++) {
+                AIProvider p = providerComboBox.getItemAt(i);
+                if (p != null && p.getName().equals(currentProviderName)) {
+                    providerComboBox.setSelectedIndex(i);
+                    selectedP = p;
+                    break;
+                }
             }
+            
+            // Refresh agent list from the specific provider
+            agentComboBox.removeAllItems();
+            if (selectedP != null && selectedP.getAvailableModels() != null && !selectedP.getAvailableModels().isEmpty()) {
+                for (String m : selectedP.getAvailableModels()) agentComboBox.addItem(m);
+                agentComboBox.setSelectedItem(selectedP.getSelectedAgent());
+                if (agentComboBox.getSelectedItem() == null && agentComboBox.getItemCount() > 0) {
+                    agentComboBox.setSelectedIndex(0);
+                }
+            } else {
+                agentComboBox.addItem("请获取模型列表");
+            }
+        } finally {
+            isUpdatingProvider = false;
         }
-        agentComboBox.removeAllItems();
-        if (c.getAvailableModels() != null && !c.getAvailableModels().isEmpty()) {
-            for (String m : c.getAvailableModels()) agentComboBox.addItem(m);
-            agentComboBox.setSelectedItem(c.getSelectedAgent());
-        } else { agentComboBox.addItem("请获取模型列表"); }
-        isUpdatingProvider = false;
     }
 
     private void saveConfig() {
         ConfigManager.Config c = ConfigManager.getInstance().getConfig();
         try { c.setMaxTokens(Integer.parseInt(maxTokensField.getText().trim())); } catch (Exception e) { c.setMaxTokens(8192); }
-        c.setApiKey(apiKeyField.getText().trim()); c.setApiEndpoint(apiEndpointField.getText().trim());
-        c.setModelsEndpoint(modelsEndpointField.getText().trim()); c.setPrompt(promptArea.getText().trim());
+        c.setApiKey(apiKeyField.getText().trim()); 
+        c.setApiEndpoint(apiEndpointField.getText().trim());
+        c.setModelsEndpoint(modelsEndpointField.getText().trim()); 
+        c.setPrompt(promptArea.getText().trim());
         c.setAuthType((String)authTypeComboBox.getSelectedItem());
+        
         AIProvider p = (AIProvider)providerComboBox.getSelectedItem();
-        if (p != null && !p.getName().equals(ADD_NEW_PROVIDER)) c.setSelectedProvider(p.getName());
-        Object m = agentComboBox.getSelectedItem();
-        if (m != null && !m.toString().contains("获取") && !m.toString().contains("等待")) c.setSelectedAgent(m.toString());
+        if (p != null && !p.getName().equals(ADD_NEW_PROVIDER)) {
+            c.setSelectedProvider(p.getName());
+            
+            // Update provider's own fields
+            p.setApiEndpoint(apiEndpointField.getText().trim());
+            p.setModelsEndpoint(modelsEndpointField.getText().trim());
+            p.setAuthType((String)authTypeComboBox.getSelectedItem());
+            
+            // Update provider's models and selection
+            Object m = agentComboBox.getSelectedItem();
+            if (m != null && !m.toString().contains("获取") && !m.toString().contains("等待")) {
+                p.setSelectedAgent(m.toString());
+                c.setSelectedAgent(m.toString()); // Also update global active agent
+            }
+            
+            List<String> currentModels = new ArrayList<>();
+            for (int i = 0; i < agentComboBox.getItemCount(); i++) {
+                String item = agentComboBox.getItemAt(i).toString();
+                if (!item.contains("获取") && !item.contains("等待")) {
+                    currentModels.add(item);
+                }
+            }
+            p.setAvailableModels(currentModels);
+            c.setAvailableModels(currentModels); // Sync to global for backward compatibility/active use
+        }
+        
         ConfigManager.getInstance().saveConfig();
         statusLabel.setText("状态: 配置已成功保存");
     }
 
     private void reloadProviders() {
+        boolean wasUpdating = isUpdatingProvider;
         isUpdatingProvider = true;
         AIProvider cur = (AIProvider)providerComboBox.getSelectedItem();
         String name = cur != null ? cur.getName() : "";
@@ -248,7 +313,7 @@ public class ConfigDialog extends JDialog {
         for (int i = 0; i < providerComboBox.getItemCount(); i++) {
             if (providerComboBox.getItemAt(i).getName().equals(name)) { providerComboBox.setSelectedIndex(i); break; }
         }
-        isUpdatingProvider = false;
+        isUpdatingProvider = wasUpdating;
     }
 
     private void quickSaveEndpoint() {
@@ -309,15 +374,37 @@ public class ConfigDialog extends JDialog {
                         List<String> list = new ArrayList<>();
                         if (json.has("data")) {
                             JsonArray arr = json.getAsJsonArray("data");
-                            for (int i = 0; i < arr.size(); i++) list.add(arr.get(i).getAsJsonObject().get("id").getAsString());
+                            for (int i = 0; i < arr.size(); i++) {
+                                JsonObject m = arr.get(i).getAsJsonObject();
+                                if (m.has("id")) list.add(m.get("id").getAsString());
+                            }
                         }
                         SwingUtilities.invokeLater(() -> {
-                            agentComboBox.removeAllItems(); for (String s : list) agentComboBox.addItem(s);
-                            statusLabel.setText("状态: 已获取 " + list.size() + " 个模型");
+                            agentComboBox.removeAllItems();
+                            for (String s : list) agentComboBox.addItem(s);
+                            
+                            AIProvider p = (AIProvider)providerComboBox.getSelectedItem();
+                            if (p != null && !p.getName().equals(ADD_NEW_PROVIDER)) {
+                                if (agentComboBox.getItemCount() > 0) {
+                                    agentComboBox.setSelectedIndex(0);
+                                    String selectedModel = agentComboBox.getSelectedItem().toString();
+                                    p.setSelectedAgent(selectedModel);
+                                    ConfigManager.getInstance().getConfig().setSelectedAgent(selectedModel);
+                                }
+                                p.setAvailableModels(list);
+                                ConfigManager.getInstance().getConfig().setAvailableModels(list);
+                                ConfigManager.getInstance().saveConfig();
+                            }
+                            
+                            statusLabel.setText("状态: 已获取 " + list.size() + " 个模型并自动保存");
                         });
+                    } else {
+                        SwingUtilities.invokeLater(() -> statusLabel.setText("状态: 获取失败 (" + resp.code() + ")"));
                     }
                 }
-            } catch (Exception e) { SwingUtilities.invokeLater(() -> statusLabel.setText("状态: 获取失败")); }
+            } catch (Exception e) { 
+                SwingUtilities.invokeLater(() -> statusLabel.setText("状态: 获取异常")); 
+            }
         }).start();
     }
 

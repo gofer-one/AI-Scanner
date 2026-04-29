@@ -16,6 +16,7 @@ public class ScanTask {
     private String aiAnalysis;
     private String customPrompt;
     private volatile boolean isStopped = false;
+    private long garbageDetectedTime = 0;
 
     public ScanTask(int id, IHttpRequestResponse request, String method, String url) {
         this(id, request, method, url, ScanMode.CUSTOM);
@@ -104,6 +105,14 @@ public class ScanTask {
 
     public void setStopped(boolean stopped) {
         isStopped = stopped;
+    }
+
+    public long getGarbageDetectedTime() {
+        return garbageDetectedTime;
+    }
+
+    public void setGarbageDetectedTime(long garbageDetectedTime) {
+        this.garbageDetectedTime = garbageDetectedTime;
     }
 
     public static enum TaskStatus {

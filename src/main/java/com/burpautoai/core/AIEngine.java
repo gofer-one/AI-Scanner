@@ -154,11 +154,59 @@ public class AIEngine {
                 if (delta != null && delta.has("content")) {
                     String chunk = delta.get("content").getAsString();
                     full.append(chunk);
+
+                    // 检查是否存在异常循环输出 (如连续的 📐 或重复字符)
+                    if (full.length() > 20 && isGarbageOutput(full)) {
+                        long now = System.currentTimeMillis();
+                        if (task.getGarbageDetectedTime() == 0) {
+                            task.setGarbageDetectedTime(now);
+                            this.logPanel.logWarning("[任务 #" + task.getId() + "] 检测到异常循环输出，开启1分钟熔断倒计时...");
+                        } else if (now - task.getGarbageDetectedTime() > 60000) {
+                            task.setErrorMessage("AI 分析错误：检测到持续循环输出超过1分钟，已自动终止");
+                            task.setStopped(true);
+                        }
+                    } else {
+                        // 如果恢复正常输出，重置计时器
+                        if (task.getGarbageDetectedTime() != 0) {
+                            task.setGarbageDetectedTime(0);
+                            this.logPanel.logAI("[任务 #" + task.getId() + "] AI 已恢复正常输出，重置熔断计时器");
+                        }
+                    }
+
                     task.setAiAnalysis(full.toString());
                     if (cb != null) cb.onChunk(chunk);
                 }
             }
         } catch (Exception e) {}
+    }
+
+    private boolean isGarbageOutput(StringBuilder sb) {
+        int len = sb.length();
+        // 1. 检查末尾是否出现大量连续的 📐
+        int triangleCount = 0;
+        for (int i = len - 1; i >= Math.max(0, len - 60); i--) {
+            char c = sb.charAt(i);
+            if (c == '\uD83D' || c == '\uDCC4') { // 📐 is \uD83D\uDCC4
+                triangleCount++;
+            } else if (!Character.isWhitespace(c)) {
+                if (triangleCount > 0) break; // 只统计末尾连续的
+            }
+        }
+        // 📐 是由两个 char 组成的，所以 count / 2
+        if (triangleCount / 2 >= 3) return true;
+
+        // 2. 检查末尾单一字符极大量重复
+        char lastChar = sb.charAt(len - 1);
+        if (!Character.isWhitespace(lastChar)) {
+            int repeatCount = 0;
+            for (int i = len - 1; i >= Math.max(0, len - 100); i--) {
+                if (sb.charAt(i) == lastChar) repeatCount++;
+                else break;
+            }
+            if (repeatCount >= 50) return true;
+        }
+
+        return false;
     }
 
     private String buildRequestInfo(IHttpRequestResponse message) {

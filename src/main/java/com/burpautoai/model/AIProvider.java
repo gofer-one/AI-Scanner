@@ -9,6 +9,8 @@ public class AIProvider {
     private String modelsEndpoint;
     private String authType;
     private boolean isCustom;
+    private List<String> availableModels = new ArrayList<>();
+    private String selectedAgent = "";
 
     public AIProvider(String name, String apiEndpoint, String modelsEndpoint, String authType) {
         this.name = name;
@@ -24,6 +26,23 @@ public class AIProvider {
         this.modelsEndpoint = modelsEndpoint;
         this.authType = authType;
         this.isCustom = isCustom;
+    }
+
+    public List<String> getAvailableModels() {
+        if (this.availableModels == null) this.availableModels = new ArrayList<>();
+        return this.availableModels;
+    }
+
+    public void setAvailableModels(List<String> availableModels) {
+        this.availableModels = availableModels;
+    }
+
+    public String getSelectedAgent() {
+        return this.selectedAgent != null ? this.selectedAgent : "";
+    }
+
+    public void setSelectedAgent(String selectedAgent) {
+        this.selectedAgent = selectedAgent;
     }
 
     public String getName() {
